@@ -44,6 +44,30 @@ export function stockStatus(quantity: number, reorderLevel: number): StockStatus
 
 export const APP_NAME = 'StockFlow';
 
+/** Money is shown in US dollars with US number formatting (DECISIONS.md "Currency"). */
+export const CURRENCY = 'USD';
+export const LOCALE = 'en-US';
+
+/** Preset swatches for the category colour picker (any hex colour is accepted too). */
+export const CATEGORY_COLORS = [
+  '#2563EB',
+  '#0EA5E9',
+  '#10B981',
+  '#84CC16',
+  '#F59E0B',
+  '#F97316',
+  '#EF4444',
+  '#EC4899',
+  '#8B5CF6',
+  '#64748B',
+] as const;
+
+/** Why the shared demo account cannot change its sign-in details (shown in Settings and by the server). */
+export const DEMO_PASSWORD_MESSAGE =
+  "The shared demo account's password can't be changed, so every visitor can keep signing in with it.";
+export const DEMO_EMAIL_MESSAGE =
+  "The shared demo account's email can't be changed, so every visitor can keep signing in with it.";
+
 /** Password rules shared by register, change-password and user management. */
 export const PASSWORD_MIN_LENGTH = 8;
 /** bcrypt only looks at the first 72 bytes; longer input is rejected instead of silently truncated. */

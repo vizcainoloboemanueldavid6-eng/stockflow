@@ -47,10 +47,17 @@ export async function requireUser(): Promise<CurrentUser> {
   return user;
 }
 
-/** THE guard. Throws UnauthorizedError / ForbiddenError; returns the fresh user otherwise. */
-export async function requirePermission(permission: Permission): Promise<CurrentUser> {
+/**
+ * THE guard. Throws UnauthorizedError / ForbiddenError; returns the fresh user otherwise.
+ * `deniedMessage` replaces the generic refusal where the reason is worth explaining
+ * (e.g. why the shared demo account cannot change its password).
+ */
+export async function requirePermission(
+  permission: Permission,
+  deniedMessage?: string,
+): Promise<CurrentUser> {
   const user = await requireUser();
-  if (!can(user.role, permission)) throw new ForbiddenError();
+  if (!can(user.role, permission)) throw new ForbiddenError(deniedMessage);
   return user;
 }
 
@@ -84,12 +91,12 @@ export type ActionResult<T = null> =
  * and never an unhandled exception. redirect()/notFound() still propagate.
  */
 export function createAction<TSchema extends z.ZodType, TResult>(
-  config: { permission: Permission; schema: TSchema },
+  config: { permission: Permission; schema: TSchema; deniedMessage?: string },
   handler: (input: z.output<TSchema>, context: { user: CurrentUser }) => Promise<TResult>,
 ): (input: z.input<TSchema>) => Promise<ActionResult<TResult>> {
   return async (input) => {
     try {
-      const user = await requirePermission(config.permission);
+      const user = await requirePermission(config.permission, config.deniedMessage);
       const parsed = config.schema.safeParse(input);
       if (!parsed.success) {
         throw new ValidationError(undefined, fieldErrorsOf(parsed.error));
