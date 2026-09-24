@@ -67,7 +67,7 @@ try {
       if (provider !== 'sqlite') {
         console.log(
           'Set DATABASE_PROVIDER=sqlite in .env before `npm run dev`. To go back to PostgreSQL,\n' +
-            'remove it and run `npm run db:generate` (the Prisma Client is provider-specific).',
+            'set it to postgresql and run `npm run db:generate` (the Prisma Client is provider-specific).',
         );
       }
       break;
