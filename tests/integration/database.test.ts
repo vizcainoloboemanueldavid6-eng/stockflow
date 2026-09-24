@@ -185,19 +185,14 @@ describe('applyStockMovement against the real database', () => {
     expect(a.status).toBe('fulfilled');
     const quantity = (await prisma.product.findUniqueOrThrow({ where: { id: productId } }))
       .quantity;
-    if (databaseProvider() === 'postgresql') {
-      // READ COMMITTED re-checks `quantity >= 7` on the committed row (3 units): no match.
-      expect(b.status).toBe('rejected');
-      const reason = (b as PromiseRejectedResult).reason;
-      expect(reason).toBeInstanceOf(InsufficientStockError);
-      expect(reason.message).toBe('Not enough stock: 3 available, tried to remove 7.');
-      expect(quantity).toBe(3);
-    } else {
-      // SQLite has one writer at a time: the second transaction either waits and then
-      // finds 3 units (InsufficientStockError) or gives up on the lock. Never both.
-      expect(b.status).toBe('rejected');
-      expect(quantity).toBe(3);
-    }
+    // PostgreSQL: READ COMMITTED re-checks `quantity >= 7` on the committed row (3 units)
+    // and matches nothing. SQLite: one writer at a time, so the second transaction only
+    // runs once the first has committed, and finds 3 units. Same outcome either way.
+    expect(b.status).toBe('rejected');
+    const reason = (b as PromiseRejectedResult).reason;
+    expect(reason).toBeInstanceOf(InsufficientStockError);
+    expect(reason.message).toBe('Not enough stock: 3 available, tried to remove 7.');
+    expect(quantity).toBe(3);
   });
 
   it('rolls back everything when a movement is refused', async () => {
