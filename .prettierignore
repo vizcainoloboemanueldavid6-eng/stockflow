@@ -1,0 +1,11 @@
+.next
+out
+node_modules
+coverage
+playwright-report
+test-results
+docs
+.pg
+prisma/sqlite
+prisma/migrations
+package-lock.json
