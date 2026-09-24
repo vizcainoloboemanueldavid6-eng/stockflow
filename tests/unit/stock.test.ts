@@ -202,6 +202,38 @@ describe('applyStockMovement', () => {
     expect(db.products.get('old')?.quantity).toBe(9);
   });
 
+  it('two concurrent OUTs of 7 against a stock of 10: exactly one succeeds', async () => {
+    const db = createFakeDb([{ id: 'p1', quantity: 10 }]);
+    const [a, b] = await Promise.allSettled([
+      applyStockMovement(db.tx, { productId: 'p1', type: 'OUT', quantity: 7, userId: 'u1' }),
+      applyStockMovement(db.tx, { productId: 'p1', type: 'OUT', quantity: 7, userId: 'u2' }),
+    ]);
+    expect([a.status, b.status].sort()).toEqual(['fulfilled', 'rejected']);
+    const failure = [a, b].find((r) => r.status === 'rejected') as PromiseRejectedResult;
+    expect(failure.reason).toBeInstanceOf(InsufficientStockError);
+    expect(failure.reason.message).toBe('Not enough stock: 3 available, tried to remove 7.');
+    expect(db.products.get('p1')?.quantity).toBe(3);
+    expect(db.movements).toHaveLength(1);
+    expect(db.audits).toHaveLength(1);
+  });
+
+  it('the harness would catch a read-then-write implementation (it overdraws)', async () => {
+    // Control for the tests above: the same interleaving breaks a naive version that
+    // reads the quantity, checks it in JavaScript and writes it back.
+    const db = createFakeDb([{ id: 'p1', quantity: 10 }]);
+    const naiveOut = async (units: number) => {
+      const product = await db.tx.product.findUnique({ where: { id: 'p1' } });
+      if (!product || product.quantity < units) throw new InsufficientStockError(0, units);
+      await db.tx.product.updateMany({
+        where: { id: 'p1' },
+        data: { quantity: { decrement: units } },
+      });
+    };
+    const results = await Promise.allSettled([naiveOut(7), naiveOut(7)]);
+    expect(results.every((r) => r.status === 'fulfilled')).toBe(true);
+    expect(db.products.get('p1')?.quantity).toBe(-4);
+  });
+
   it('lets only as many concurrent OUTs succeed as the stock allows', async () => {
     const db = createFakeDb([{ id: 'p1', quantity: 10 }]);
     const attempts = await Promise.allSettled(

@@ -129,6 +129,77 @@ describe('applyStockMovement against the real database', () => {
     expect(await prisma.stockMovement.count({ where: { productId, type: 'OUT' } })).toBe(ok);
   });
 
+  it('two overlapping OUTs cannot both take the same units', async () => {
+    // Deterministic interleaving: the first transaction takes 7 of 10 units and holds
+    // its row lock; the second asks for 7 more while the first is still open.
+    const start = await prisma.product.findUniqueOrThrow({ where: { id: productId } });
+    if (start.quantity !== 10) {
+      await prisma.$transaction((tx) =>
+        applyStockMovement(tx, {
+          productId,
+          type: 'ADJUSTMENT',
+          quantity: 10 - start.quantity,
+          userId,
+          reason: 'Set to 10 for the test',
+        }),
+      );
+    }
+
+    let release!: () => void;
+    const hold = new Promise<void>((resolve) => (release = resolve));
+    let signalApplied!: () => void;
+    const applied = new Promise<void>((resolve) => (signalApplied = resolve));
+    const options = { timeout: 30_000, maxWait: 10_000 };
+
+    const first = prisma.$transaction(async (tx) => {
+      const result = await applyStockMovement(tx, { productId, type: 'OUT', quantity: 7, userId });
+      signalApplied();
+      await hold; // keep the transaction (and its row lock) open
+      return result;
+    }, options);
+    await applied;
+
+    const second = prisma.$transaction(
+      (tx) => applyStockMovement(tx, { productId, type: 'OUT', quantity: 7, userId }),
+      options,
+    );
+
+    if (databaseProvider() === 'postgresql') {
+      // Wait until the second transaction is really blocked on the first one's row lock.
+      const deadline = Date.now() + 10_000;
+      for (;;) {
+        const [{ waiting }] = await prisma.$queryRawUnsafe<{ waiting: number }[]>(
+          `SELECT count(*)::int AS waiting FROM pg_stat_activity
+           WHERE datname = current_database() AND wait_event_type = 'Lock'`,
+        );
+        if (waiting > 0) break;
+        if (Date.now() > deadline) throw new Error('the second OUT never waited for the lock');
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    } else {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+    release();
+
+    const [a, b] = await Promise.allSettled([first, second]);
+    expect(a.status).toBe('fulfilled');
+    const quantity = (await prisma.product.findUniqueOrThrow({ where: { id: productId } }))
+      .quantity;
+    if (databaseProvider() === 'postgresql') {
+      // READ COMMITTED re-checks `quantity >= 7` on the committed row (3 units): no match.
+      expect(b.status).toBe('rejected');
+      const reason = (b as PromiseRejectedResult).reason;
+      expect(reason).toBeInstanceOf(InsufficientStockError);
+      expect(reason.message).toBe('Not enough stock: 3 available, tried to remove 7.');
+      expect(quantity).toBe(3);
+    } else {
+      // SQLite has one writer at a time: the second transaction either waits and then
+      // finds 3 units (InsufficientStockError) or gives up on the lock. Never both.
+      expect(b.status).toBe('rejected');
+      expect(quantity).toBe(3);
+    }
+  });
+
   it('rolls back everything when a movement is refused', async () => {
     const before = await prisma.product.findUniqueOrThrow({ where: { id: productId } });
     const movements = await prisma.stockMovement.count({ where: { productId } });
