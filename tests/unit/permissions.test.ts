@@ -107,6 +107,11 @@ describe('userChangeRefusal', () => {
     expect(userChangeRefusal(admin, admin, 'role', { newRole: 'STAFF' })).toMatch(/your own role/);
   });
 
+  it('sends people to the Password section instead of resetting their own password', () => {
+    expect(userChangeRefusal(admin, admin, 'set-password')).toMatch(/Password section/);
+    expect(userChangeRefusal(admin, admin, 'update')).toBeNull();
+  });
+
   it('keeps at least one admin', () => {
     expect(userChangeRefusal(admin, otherAdmin, 'delete', { adminCount: 1 })).toMatch(/one admin/);
     expect(

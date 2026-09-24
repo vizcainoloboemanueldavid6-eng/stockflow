@@ -73,6 +73,7 @@ describe('STAFF is refused by the server, not just hidden in the UI', () => {
     ],
     ['updateUser', () => users.updateUser({ id: 'u1', name: 'Someone', role: 'ADMIN' })],
     ['deleteUser', () => users.deleteUser({ id: 'u1' })],
+    ['setUserPassword', () => users.setUserPassword({ id: 'u1', password: 'Fresh#2026x' })],
   ];
 
   it.each(calls)('%s returns FORBIDDEN without touching the database', async (_name, call) => {
@@ -120,6 +121,18 @@ describe('DEMO restrictions', () => {
       code: 'FORBIDDEN',
       error: 'Only administrators can delete users.',
     });
+  });
+
+  it("cannot reset other people's passwords", async () => {
+    signInAs('DEMO');
+    await expect(
+      users.setUserPassword({ id: 'staff-id', password: 'Fresh#2026x' }),
+    ).resolves.toEqual({
+      ok: false,
+      code: 'FORBIDDEN',
+      error: 'Only administrators can reset passwords.',
+    });
+    expect(mocks.transaction).not.toHaveBeenCalled();
   });
 
   it('can only create staff accounts', async () => {
@@ -221,5 +234,34 @@ describe('referential rules with clear messages', () => {
       ok: false,
       error: 'You cannot delete your own account.',
     });
+  });
+
+  it('lets an admin set a new password for someone else (audited), never their own', async () => {
+    signInAs('ADMIN');
+    const admin = { id: 'admin-id', name: 'ADMIN', email: 'admin-id@x.test', role: 'ADMIN' };
+    mocks.findCurrentUser
+      .mockResolvedValueOnce(admin)
+      .mockResolvedValueOnce({ id: 'staff-id', name: 'Staff', role: 'STAFF' });
+    await expect(
+      users.setUserPassword({ id: 'staff-id', password: 'Fresh#2026x' }),
+    ).resolves.toEqual({ ok: true, data: { id: 'staff-id', name: 'Staff' } });
+    expect(mocks.tx.user.update).toHaveBeenCalledWith({
+      where: { id: 'staff-id' },
+      data: { passwordHash: 'hash' },
+    });
+    expect(mocks.tx.auditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ action: 'user.set-password', entityId: 'staff-id' }),
+    });
+
+    vi.clearAllMocks();
+    signInAs('ADMIN');
+    await expect(
+      users.setUserPassword({ id: 'admin-id', password: 'Fresh#2026x' }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'FORBIDDEN',
+      error: expect.stringMatching(/Password section/),
+    });
+    expect(mocks.transaction).not.toHaveBeenCalled();
   });
 });

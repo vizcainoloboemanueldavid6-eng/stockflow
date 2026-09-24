@@ -91,7 +91,8 @@ export type UserChange = 'update' | 'role' | 'set-password' | 'delete';
  * Returns the reason a change is refused, or null when it is allowed.
  * The caller still needs the matching permission; this adds the relational checks.
  *
- * - Nobody deletes themselves or changes their own role (no accidental lock-out).
+ * - Nobody deletes themselves or changes their own role (no accidental lock-out), and
+ *   nobody resets their own password here (that path skips the current-password check).
  * - DEMO may manage STAFF accounts it can see, but not ADMIN accounts, not other
  *   DEMO accounts, and it may not grant ADMIN.
  * - The last remaining ADMIN can be neither demoted nor deleted.
@@ -113,6 +114,9 @@ export function userChangeRefusal(
   const self = actor.id === target.id;
   if (self && change === 'delete') return 'You cannot delete your own account.';
   if (self && change === 'role') return 'You cannot change your own role.';
+  if (self && change === 'set-password') {
+    return 'Change your own password in the Password section, which asks for the current one.';
+  }
 
   if (actor.role === 'DEMO') {
     if (target.role !== 'STAFF' && !self) {
