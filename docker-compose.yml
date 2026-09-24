@@ -1,0 +1,26 @@
+# Local PostgreSQL for StockFlow.
+#   docker compose up -d
+#   DATABASE_URL="postgresql://stockflow:stockflow@localhost:5432/stockflow"
+#   npm run db:deploy && npm run db:seed
+# No Docker? `npm run db:local` starts the same PostgreSQL 16 without it (port 54329).
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: stockflow-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: stockflow
+      POSTGRES_PASSWORD: stockflow
+      POSTGRES_DB: stockflow
+    ports:
+      - '5432:5432'
+    volumes:
+      - stockflow-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U stockflow -d stockflow']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  stockflow-pgdata:

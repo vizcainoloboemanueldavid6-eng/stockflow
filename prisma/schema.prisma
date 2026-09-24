@@ -1,0 +1,132 @@
+// StockFlow data model.
+//
+// This is the source of truth for BOTH database modes:
+//   - PostgreSQL (default): used as-is by `prisma migrate`, `db:deploy`, `db:generate`.
+//   - SQLite (DATABASE_PROVIDER=sqlite): scripts/lib/prisma-provider.mjs derives
+//     prisma/sqlite/schema.prisma from this file by swapping the provider and
+//     stripping the Postgres-only `@db.*` native type attributes. Never edit the
+//     generated copy; keep this file portable (no Postgres-only features beyond `@db.*`).
+//
+// Invariant: Product.quantity only changes through applyStockMovement()
+// (src/lib/stock.ts), inside a transaction, and never goes below zero.
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  STAFF
+  DEMO
+}
+
+enum MovementType {
+  IN
+  OUT
+  ADJUSTMENT
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         Role     @default(STAFF)
+  createdAt    DateTime @default(now())
+
+  movements StockMovement[]
+  auditLogs AuditLog[]
+
+  @@index([role])
+}
+
+model Category {
+  id    String @id @default(cuid())
+  name  String @unique
+  /// Hex colour used for badges and charts, e.g. "#2563EB".
+  color String
+
+  products Product[]
+}
+
+model Supplier {
+  id    String  @id @default(cuid())
+  name  String
+  email String?
+  phone String?
+  notes String?
+
+  products Product[]
+
+  @@index([name])
+}
+
+model Product {
+  id           String   @id @default(cuid())
+  sku          String   @unique
+  name         String
+  description  String?
+  categoryId   String
+  supplierId   String?
+  unitCost     Decimal  @db.Decimal(10, 2)
+  salePrice    Decimal  @db.Decimal(10, 2)
+  /// Units on hand. Maintained exclusively by applyStockMovement(); never negative.
+  quantity     Int      @default(0)
+  /// At or below this quantity the product counts as "low stock".
+  reorderLevel Int      @default(0)
+  imageUrl     String?
+  archived     Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  category  Category        @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  supplier  Supplier?       @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  movements StockMovement[]
+
+  @@index([categoryId])
+  @@index([supplierId])
+  @@index([archived, name])
+  @@index([quantity])
+}
+
+model StockMovement {
+  id        String       @id @default(cuid())
+  productId String
+  type      MovementType
+  /// IN and OUT: positive number of units. ADJUSTMENT: signed, non-zero delta.
+  quantity  Int
+  reason    String?
+  userId    String?
+  createdAt DateTime     @default(now())
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+  user    User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([productId, createdAt])
+  @@index([createdAt])
+  @@index([type, createdAt])
+  @@index([userId])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  /// Verb in dot notation, e.g. "product.create", "stock.out", "user.delete".
+  action    String
+  /// Entity name, e.g. "Product", "StockMovement", "User".
+  entity    String
+  entityId  String?
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([entity, entityId])
+  @@index([createdAt])
+  @@index([userId])
+}
