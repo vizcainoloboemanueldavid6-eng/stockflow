@@ -1,0 +1,222 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+/*
+ * The stage-2 server actions called directly - the way a hand-crafted request would
+ * call them - with the session and the database mocked. Proves the role rules live
+ * on the server: refused calls never open a transaction.
+ */
+const mocks = vi.hoisted(() => {
+  const tx = {
+    product: { findUnique: vi.fn(), delete: vi.fn(), update: vi.fn() },
+    category: { findUnique: vi.fn(), delete: vi.fn() },
+    supplier: { findUnique: vi.fn(), delete: vi.fn() },
+    user: { findUnique: vi.fn(), count: vi.fn(), update: vi.fn(), delete: vi.fn() },
+    auditLog: { create: vi.fn() },
+  };
+  return {
+    auth: vi.fn(),
+    findCurrentUser: vi.fn(),
+    transaction: vi.fn(async (fn: (client: typeof tx) => unknown) => fn(tx)),
+    tx,
+  };
+});
+
+vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
+vi.mock('@/lib/auth', () => ({
+  auth: mocks.auth,
+  hashPassword: vi.fn(async () => 'hash'),
+  verifyPassword: vi.fn(async () => true),
+}));
+vi.mock('@/lib/db', () => ({
+  prisma: { user: { findUnique: mocks.findCurrentUser }, $transaction: mocks.transaction },
+}));
+
+const products = await import('@/lib/actions/products');
+const catalog = await import('@/lib/actions/catalog');
+const users = await import('@/lib/actions/users');
+const account = await import('@/lib/actions/account');
+const { DEMO_EMAIL_MESSAGE, DEMO_PASSWORD_MESSAGE } = await import('@/lib/constants');
+
+type Role = 'ADMIN' | 'STAFF' | 'DEMO';
+
+function signInAs(role: Role) {
+  const id = `${role.toLowerCase()}-id`;
+  mocks.auth.mockResolvedValue({ user: { id, role } });
+  mocks.findCurrentUser.mockResolvedValue({ id, name: role, email: `${id}@x.test`, role });
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  mocks.transaction.mockImplementation(async (fn) => fn(mocks.tx));
+});
+
+describe('STAFF is refused by the server, not just hidden in the UI', () => {
+  const calls: [string, () => Promise<unknown>][] = [
+    ['deleteProduct', () => products.deleteProduct({ id: 'p1' })],
+    ['setProductArchived', () => products.setProductArchived({ id: 'p1', archived: true })],
+    ['createCategory', () => catalog.createCategory({ name: 'Drones', color: '#2563EB' })],
+    ['deleteCategory', () => catalog.deleteCategory({ id: 'c1' })],
+    ['createSupplier', () => catalog.createSupplier({ name: 'Harbor Parts' })],
+    ['deleteSupplier', () => catalog.deleteSupplier({ id: 's1' })],
+    [
+      'createUser',
+      () =>
+        users.createUser({
+          name: 'New Person',
+          email: 'new@x.test',
+          role: 'ADMIN',
+          password: 'Password1',
+        }),
+    ],
+    ['updateUser', () => users.updateUser({ id: 'u1', name: 'Someone', role: 'ADMIN' })],
+    ['deleteUser', () => users.deleteUser({ id: 'u1' })],
+  ];
+
+  it.each(calls)('%s returns FORBIDDEN without touching the database', async (_name, call) => {
+    signInAs('STAFF');
+    await expect(call()).resolves.toMatchObject({ ok: false, code: 'FORBIDDEN' });
+    expect(mocks.transaction).not.toHaveBeenCalled();
+  });
+});
+
+describe('DEMO restrictions', () => {
+  it('cannot change its password, with an explanation', async () => {
+    signInAs('DEMO');
+    const result = await account.changePassword({
+      currentPassword: 'Demo#2026',
+      newPassword: 'Another#2027',
+      confirmPassword: 'Another#2027',
+    });
+    expect(result).toEqual({ ok: false, code: 'FORBIDDEN', error: DEMO_PASSWORD_MESSAGE });
+    expect(mocks.transaction).not.toHaveBeenCalled();
+  });
+
+  it('cannot change its email but may rename itself', async () => {
+    signInAs('DEMO');
+    await expect(
+      account.updateProfile({ name: 'Visitor', email: 'someone-else@x.test' }),
+    ).resolves.toEqual({ ok: false, code: 'FORBIDDEN', error: DEMO_EMAIL_MESSAGE });
+
+    mocks.tx.user.update.mockResolvedValue({
+      id: 'demo-id',
+      name: 'Visitor',
+      email: 'demo-id@x.test',
+    });
+    await expect(
+      account.updateProfile({ name: 'Visitor', email: 'demo-id@x.test' }),
+    ).resolves.toMatchObject({ ok: true });
+    expect(mocks.tx.auditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ action: 'profile.update', entity: 'User' }),
+    });
+  });
+
+  it('cannot delete users', async () => {
+    signInAs('DEMO');
+    await expect(users.deleteUser({ id: 'staff-id' })).resolves.toEqual({
+      ok: false,
+      code: 'FORBIDDEN',
+      error: 'Only administrators can delete users.',
+    });
+  });
+
+  it('can only create staff accounts', async () => {
+    signInAs('DEMO');
+    await expect(
+      users.createUser({
+        name: 'Boss',
+        email: 'boss@x.test',
+        role: 'ADMIN',
+        password: 'Password1',
+      }),
+    ).resolves.toMatchObject({ ok: false, code: 'FORBIDDEN' });
+    expect(mocks.transaction).not.toHaveBeenCalled();
+  });
+
+  it('may delete products (like an admin)', async () => {
+    signInAs('DEMO');
+    mocks.tx.product.findUnique.mockResolvedValue({
+      id: 'p1',
+      name: 'Spare Cable',
+      _count: { movements: 0 },
+    });
+    await expect(products.deleteProduct({ id: 'p1' })).resolves.toEqual({
+      ok: true,
+      data: { id: 'p1', name: 'Spare Cable' },
+    });
+    expect(mocks.tx.product.delete).toHaveBeenCalledWith({ where: { id: 'p1' } });
+    expect(mocks.tx.auditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ action: 'product.delete', entityId: 'p1' }),
+    });
+  });
+});
+
+describe('referential rules with clear messages', () => {
+  it('refuses to delete a product that has stock history', async () => {
+    signInAs('ADMIN');
+    mocks.tx.product.findUnique.mockResolvedValue({
+      id: 'p1',
+      name: 'USB Hub',
+      _count: { movements: 12 },
+    });
+    const result = await products.deleteProduct({ id: 'p1' });
+    expect(result).toMatchObject({ ok: false, code: 'CONFLICT' });
+    expect(result.ok === false && result.error).toMatch(/12 stock movements.*Archive it instead/);
+    expect(mocks.tx.product.delete).not.toHaveBeenCalled();
+  });
+
+  it('refuses to delete a category still used by products', async () => {
+    signInAs('ADMIN');
+    mocks.tx.category.findUnique.mockResolvedValue({
+      id: 'c1',
+      name: 'Audio',
+      _count: { products: 9 },
+    });
+    const result = await catalog.deleteCategory({ id: 'c1' });
+    expect(result).toMatchObject({ ok: false, code: 'CONFLICT' });
+    expect(result.ok === false && result.error).toMatch(/"Audio" is still used by 9 products/);
+    expect(mocks.tx.category.delete).not.toHaveBeenCalled();
+  });
+
+  it('refuses to delete a supplier still used by one product', async () => {
+    signInAs('ADMIN');
+    mocks.tx.supplier.findUnique.mockResolvedValue({
+      id: 's1',
+      name: 'Northgate',
+      _count: { products: 1 },
+    });
+    const result = await catalog.deleteSupplier({ id: 's1' });
+    expect(result.ok === false && result.error).toMatch(/still used by 1 product /);
+  });
+
+  it('deletes an unused supplier and audits it', async () => {
+    signInAs('ADMIN');
+    mocks.tx.supplier.findUnique.mockResolvedValue({
+      id: 's2',
+      name: 'Unused',
+      _count: { products: 0 },
+    });
+    await expect(catalog.deleteSupplier({ id: 's2' })).resolves.toMatchObject({ ok: true });
+    expect(mocks.tx.auditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ action: 'supplier.delete', entityId: 's2' }),
+    });
+  });
+
+  it('keeps the last admin', async () => {
+    signInAs('ADMIN');
+    mocks.tx.user.findUnique.mockResolvedValue({ id: 'other-admin', role: 'ADMIN' });
+    mocks.tx.user.count.mockResolvedValue(1);
+    await expect(
+      users.updateUser({ id: 'other-admin', name: 'Other Admin', role: 'STAFF' }),
+    ).resolves.toEqual({
+      ok: false,
+      code: 'FORBIDDEN',
+      error: 'At least one admin account must remain.',
+    });
+    mocks.tx.user.findUnique.mockResolvedValue({ id: 'admin-id', role: 'ADMIN', name: 'Admin' });
+    mocks.tx.user.count.mockResolvedValue(2);
+    await expect(users.deleteUser({ id: 'admin-id' })).resolves.toMatchObject({
+      ok: false,
+      error: 'You cannot delete your own account.',
+    });
+  });
+});
