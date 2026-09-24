@@ -121,9 +121,7 @@ export default async function SettingsPage({
             <Card>
               <CardHeader>
                 <CardTitle>Users</CardTitle>
-                <CardDescription>
-                  Who can sign in, and with which role. Admin only (the demo account can look).
-                </CardDescription>
+                <CardDescription>Who can sign in, and with which role.</CardDescription>
               </CardHeader>
               <CardContent>
                 <UsersSection

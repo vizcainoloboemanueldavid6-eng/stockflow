@@ -223,7 +223,7 @@ function ProductForm({
                   <Input
                     autoComplete="off"
                     placeholder="e.g. MOU-104"
-                    className="font-mono uppercase"
+                    className="font-mono uppercase placeholder:normal-case"
                     {...field}
                   />
                 </FormControl>

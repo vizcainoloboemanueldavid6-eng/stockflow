@@ -137,7 +137,7 @@ describe('product schema', () => {
     const errors = errorsOf(
       productCreateSchema.safeParse({ ...validProduct, categoryId: '', sku: 'a b' }),
     );
-    expect(errors.categoryId).toBeDefined();
+    expect(errors.categoryId).toEqual(['Choose a category.']);
     expect(errors.sku).toBeDefined();
   });
 

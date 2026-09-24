@@ -19,12 +19,19 @@ export const skuSchema = z
   .max(32, 'SKU must be at most 32 characters.')
   .regex(/^[A-Z0-9][A-Z0-9-]*$/, 'Use letters, numbers and dashes only.');
 
+/** A required foreign key chosen from a list, with a message that says what to do. */
+const categoryIdSchema = z
+  .string({ error: 'Choose a category.' })
+  .trim()
+  .min(1, 'Choose a category.')
+  .max(64, 'Invalid id.');
+
 /** Fields a user edits on a product. `quantity` is deliberately absent: stock only moves through movements. */
 export const productFieldsSchema = z.object({
   sku: skuSchema,
   name: nameSchema('Name', { min: 2, max: 120 }),
   description: optionalTextSchema(1000),
-  categoryId: idSchema,
+  categoryId: categoryIdSchema,
   supplierId: optionalIdSchema,
   unitCost: moneySchema('Unit cost'),
   salePrice: moneySchema('Sale price'),
