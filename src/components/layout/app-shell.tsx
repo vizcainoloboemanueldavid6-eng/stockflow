@@ -24,7 +24,8 @@ function useIsMac() {
  * Authenticated application frame:
  *  - desktop: sticky sidebar that collapses to icons (state kept in a cookie so the
  *    server renders the right width; Ctrl/Cmd+B toggles it);
- *  - mobile (< md): the same navigation in a left drawer;
+ *  - phones and tablets (< lg): the same navigation in a left drawer (a fixed 240px
+ *    sidebar would leave a portrait tablet only ~480px for the tables);
  *  - topbar: drawer button, global search (Ctrl/Cmd+K), theme and account menus.
  */
 export function AppShell({
@@ -83,7 +84,7 @@ export function AppShell({
       <aside
         data-collapsed={collapsed}
         className={cn(
-          'sticky top-0 hidden h-dvh shrink-0 border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out md:block',
+          'sticky top-0 hidden h-dvh shrink-0 border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out lg:block',
           collapsed ? 'w-16' : 'w-60',
         )}
       >
@@ -103,7 +104,7 @@ export function AppShell({
           <Button
             variant="ghost"
             size="icon"
-            className="md:hidden"
+            className="lg:hidden"
             onClick={() => setMobileOpen(true)}
             aria-label="Open navigation"
             data-testid="open-navigation"

@@ -1,9 +1,21 @@
 'use client';
 
 import { Bar, BarChart, LabelList, Tooltip, XAxis, YAxis } from 'recharts';
+import { formatCurrency, formatNumber } from '@/lib/format';
 import { ChartTooltipContent, TruncatedTick } from './chart-parts';
 
 export type BarDatum = { key: string; label: string; value: number };
+
+/**
+ * How values are printed. A name rather than a function because server components
+ * render this chart, and functions cannot cross the server/client boundary.
+ */
+export type BarValueFormat = 'number' | 'currency';
+
+const FORMATTERS: Record<BarValueFormat, (value: number) => string> = {
+  number: formatNumber,
+  currency: formatCurrency,
+};
 
 const BAR_COLOR = 'hsl(var(--chart-1))';
 const ROW_HEIGHT = 40;
@@ -16,18 +28,19 @@ const ROW_HEIGHT = 40;
 export function HorizontalBarChart({
   data,
   seriesName,
-  valueFormatter,
+  valueFormat = 'number',
   labelWidth = 150,
   maxLabelChars = 20,
   caption,
 }: {
   data: BarDatum[];
   seriesName: string;
-  valueFormatter: (value: number) => string;
+  valueFormat?: BarValueFormat;
   labelWidth?: number;
   maxLabelChars?: number;
   caption: string;
 }) {
+  const valueFormatter = FORMATTERS[valueFormat];
   return (
     <figure>
       <div aria-hidden="true">
@@ -37,7 +50,7 @@ export function HorizontalBarChart({
           accessibilityLayer={false}
           style={{ width: '100%', height: data.length * ROW_HEIGHT + 8 }}
           data={data}
-          margin={{ top: 4, right: 64, bottom: 4, left: 0 }}
+          margin={{ top: 4, right: valueFormat === 'currency' ? 96 : 48, bottom: 4, left: 0 }}
           barCategoryGap={10}
         >
           <XAxis type="number" hide domain={[0, 'dataMax']} />

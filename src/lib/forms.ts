@@ -6,7 +6,8 @@ import type { FieldValues, Path, UseFormReturn } from 'react-hook-form';
  * are returned so the caller can show them as a form-level message.
  */
 export function applyFieldErrors<T extends FieldValues>(
-  form: UseFormReturn<T>,
+  // Only these two methods are used, so forms with a Zod transform (input != output) fit too.
+  form: Pick<UseFormReturn<T>, 'getValues' | 'setError'>,
   fieldErrors: Record<string, string[]> | undefined,
 ): string[] {
   const leftovers: string[] = [];

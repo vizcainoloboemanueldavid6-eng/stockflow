@@ -17,7 +17,7 @@ import { cn } from '@/lib/utils';
 /** Radix Select cannot hold an empty value, so "no filter" travels as this sentinel. */
 const ALL = '__all';
 
-/** Wrapping row of filters above a table. */
+/** Filters above a table: two columns on phones (search spans both), one wrapping row from `sm`. */
 export function TableToolbar({
   children,
   className,
@@ -28,7 +28,10 @@ export function TableToolbar({
   return (
     <div
       role="search"
-      className={cn('mb-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center', className)}
+      className={cn(
+        'mb-3 grid grid-cols-2 gap-2 sm:flex sm:flex-row sm:flex-wrap sm:items-center',
+        className,
+      )}
     >
       {children}
     </div>
@@ -66,7 +69,7 @@ export function DebouncedSearchInput({
   }, [draft, value]);
 
   return (
-    <div className={cn('relative w-full sm:w-64', className)}>
+    <div className={cn('relative col-span-2 w-full sm:w-64', className)}>
       <Search
         className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
         aria-hidden="true"
@@ -163,7 +166,12 @@ export function FilterSelect({
 
 export function ClearFiltersButton({ onClick }: { onClick: () => void }) {
   return (
-    <Button variant="ghost" size="sm" onClick={onClick} className="h-9 self-start sm:self-auto">
+    <Button
+      variant="ghost"
+      size="sm"
+      onClick={onClick}
+      className="col-span-2 h-9 justify-self-start sm:self-auto"
+    >
       <X aria-hidden="true" />
       Clear filters
     </Button>
