@@ -115,7 +115,12 @@ async function main() {
           await page.goto(target.url, { waitUntil: 'networkidle' });
           await page.locator('main h1').first().waitFor();
           await page.locator('table tbody tr').first().waitFor();
-          const height = await page.evaluate(() => document.documentElement.scrollHeight);
+          // Bottom of the page content plus the main area's padding (scrollHeight also
+          // counts visually hidden chart tables and would leave an empty band).
+          const height = await page.evaluate(() => {
+            const content = document.querySelector('main > div') ?? document.body;
+            return Math.ceil(content.getBoundingClientRect().bottom + window.scrollY + 32);
+          });
           await page.setViewportSize({
             width: viewport.width,
             height: Math.min(Math.max(height, viewport.height), 4000),
