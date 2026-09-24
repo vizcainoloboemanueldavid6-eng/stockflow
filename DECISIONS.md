@@ -250,7 +250,9 @@ when the 12-hour JWT expires.
 ## App shell
 
 - Desktop sidebar collapses to icons (button or Ctrl/Cmd+B). The state is a cookie read by the
-  server layout, so the first paint already has the right width. Below `md` it is a drawer.
+  server layout, so the first paint already has the right width. Below `lg` (1024 px) it is a
+  drawer. Stage 1 used `md`; stage 2 moved it because a fixed 240 px sidebar on a 768 px portrait
+  tablet left the tables only ~480 px, less than a phone in landscape.
 - Ctrl/Cmd+K opens the command palette: pages (filtered locally, respecting permissions), products
   (searched by name or SKU through the guarded `GET /api/search`), theme switching. A route
   handler rather than a server action because it is a cancellable, debounced read.
@@ -268,6 +270,130 @@ when the 12-hour JWT expires.
 
 ---
 
+## Feature pages (stage 2)
+
+### Time zone
+
+"Movements today", the 30 daily chart buckets, the history's date filters, CSV timestamps and the
+dated CSV filenames all use one zone: `APP_TIME_ZONE` (an IANA name, e.g. `America/Bogota`) or,
+when unset or invalid, the server's zone (`src/lib/dates.ts`). Dates are formatted on the server
+and sent as text, so a server in UTC and a visitor elsewhere never disagree during hydration.
+Vercel runs in UTC, so a real deployment should set `APP_TIME_ZONE`.
+
+### Currency
+
+Money is shown in US dollars with US formatting (`CURRENCY`/`LOCALE` in `src/lib/constants.ts`).
+The spec names no currency and the UI is in English; one constant changes it. CSV files carry
+money as plain two-decimal numbers (`1234.50`, no symbol or separators) so spreadsheets read them
+as numbers.
+
+### Dashboard figures
+
+- **Inventory value** = Σ quantity × unit cost over non-archived products, summed in integer cents
+  (`inventoryValue()` in `src/lib/metrics.ts`). Archived products are off the shelf, so they are not
+  counted; the reports use the same rule.
+- **Low stock** counts products at or below their reorder level _including_ out of stock (the ones
+  that need a purchase order); the tile says how many of them are out. The tile links to the alert
+  table on the same page instead of the product filter, because the filter separates "low" from
+  "out" and the numbers would not match.
+- **Movements today** counts every movement type since local midnight; the detail line gives units
+  in and out.
+- **Best sellers** rank products by units of `OUT` movements over the same 30 days as the line
+  chart (today included), so the two charts describe the same period; the card says so.
+  Adjustments are corrections, not sales, and are left out of both charts.
+- The alert table shows the 10 emptiest products and says when there are more. Each row has a
+  **Restock** button that opens the movement dialog preset to a stock-in for that product.
+
+### Chart colours
+
+`--chart-1` (blue, the primary) is "stock in" and `--chart-2` (orange) is "stock out" in both
+themes: blue/orange stays distinguishable for the common colour-vision deficiencies, and each series
+is also named in the legend and the tooltip. Axis text uses the muted foreground token, never the
+series colour. Every chart has a visually hidden table with the same numbers for screen readers.
+Charts take a named value format (`'number' | 'currency'`) instead of a formatter function, because
+server components render them and functions cannot cross into client components.
+
+### Products table
+
+- Search (name or SKU, case-insensitive on both databases), category, supplier (plus "No
+  supplier"), stock status, active/archived, sorting and paging all live in the URL and run in the
+  database; the page reads them with `productListQuerySchema`, which never throws. Sort keys are a
+  whitelist (`src/lib/list-options.ts`); an out-of-range page shows the last page.
+- Stock status: **out** = 0; **low** = 1 … reorder level; **in stock** = above it.
+- The CSV export button sends the same filters and order as the table (all pages).
+- On phones the table keeps name, stock and the row menu; the status badge moves under the name.
+  Wider screens add columns (category at `lg`, reorder level and price at `xl`, supplier and unit
+  cost at `2xl`) so no breakpoint needs sideways scrolling.
+
+### Products: create, edit, archive, delete
+
+- Create and edit share one dialog and the shared Zod schema; a taken SKU comes back from the
+  database (unique index, P2002) and is shown under the SKU field.
+- Quantity is not a form field. Opening stock on create is an `IN` movement ("Opening stock") in
+  the same transaction, so the ledger is complete from the first unit.
+- **Archive** (ADMIN/DEMO) hides a product from the active list, the dashboard and the valuation,
+  and blocks movements; it can be restored. STAFF cannot archive (see Permissions).
+- **Delete** (ADMIN/DEMO only; hidden for STAFF and refused by the server action) is allowed only
+  for a product with no movements, because the stock history must stay intact. The menu item is
+  disabled with "Has stock history, archive instead" rather than failing after a click.
+
+### Movements
+
+- One "Register movement" dialog (movements page, dashboard, product page, low-stock rows) with a
+  type switch, a searchable product combobox (server search through `GET /api/search`, active
+  products only), quantity and optional reason.
+- The form always asks for a positive number of units. For an adjustment the user picks
+  "Remove units" or "Add units", and the form sends the signed delta
+  (`movementQuantity()` in `src/lib/movement-form.ts`).
+- The dialog previews the resulting stock and warns when a stock-out exceeds what is on hand, but
+  still sends it: the server is the authority (the figure may have changed since the search) and
+  its refusal - "Not enough stock: X available, tried to remove Y." - is shown as an error toast
+  and under the quantity field. Nothing is written in that case.
+- History filters: date range (inclusive days in the app time zone), type, user (including
+  "Deleted user"), and a product chip when opened from elsewhere. Newest first by default.
+
+### Categories and suppliers
+
+- Full CRUD in dialogs; the category form has ten preset swatches (arrow keys move between them),
+  a native colour picker and a hex field. Create/edit/delete are ADMIN/DEMO; STAFF sees read-only
+  lists.
+- A category or supplier still used by any product (archived ones included) cannot be deleted.
+  The dialog explains why and links to those products instead of offering the button; the server
+  action refuses the same case with the same explanation, whatever the UI shows. (Suppliers could
+  have been detached automatically - the relation is `SetNull` - but silently unlinking products
+  from their vendor is the kind of surprise an inventory owner would not want.)
+
+### Reports
+
+- CSV downloads are plain links to guarded Route Handlers (`/api/export/products`,
+  `/api/export/movements`), so the browser saves the file itself. RFC 4180 quoting, CRLF, a UTF-8
+  BOM for Excel, a leading apostrophe on text that starts with `= + - @` (spreadsheet formula
+  injection) and a dated filename (`stockflow-products-2026-09-24.csv`).
+- The movements export defaults to the last 30 days; products export active products by default.
+- Valuation by category: active products, at cost and at sale price, share of the total and a bar
+  chart; every category appears even when empty.
+
+### Settings
+
+- Tabs: Account (profile + password), Appearance (light/dark/system, same provider as the top-bar
+  toggle), Users (only for roles with `user:view`). `?tab=users` opens a tab directly.
+- The DEMO account sees the password form disabled with the reason, and its email field is
+  read-only with the reason; both are also refused by the server actions.
+- Users: ADMIN creates users with any role, edits names and roles, sets a new password for someone
+  else (`setUserPassword`, audited) and deletes. DEMO can view, create STAFF accounts and edit
+  STAFF accounts, but cannot delete users or reset passwords. Menu items the rules refuse are shown
+  disabled with the reason from `userChangeRefusal()`; nobody can reset their own password there
+  (that path skips the current-password check).
+
+### Empty states and feedback
+
+Every list has an empty state with an inline SVG and a call to action; three drawings tell "nothing
+here yet" (box), "no match for these filters" (magnifier, with "Clear filters") and "nothing needs
+attention" (check). Every mutation shows a success or error toast and writes an AuditLog row in the
+same transaction.
+
+---
+
 ## Architecture
 
 ### Layout
@@ -279,20 +405,34 @@ scripts/                      build.mjs, db.mjs (provider-aware db:* commands), 
 src/middleware.ts             edge auth gate
 src/app/(auth)/               login, register (+ split-screen layout)
 src/app/(app)/                every signed-in page; layout.tsx = shell + fresh user
-src/app/api/                  auth/[...nextauth], search, cron/reset-demo
+src/app/api/                  auth/[...nextauth], search, cron/reset-demo, export/products,
+                              export/movements (CSV)
 src/app/logout/route.ts       sign-out for deleted accounts
 src/components/ui/            shadcn/ui primitives
 src/components/layout/        app-shell, sidebar, command-palette, user-menu, page-header,
-                              empty-state, page-skeleton, demo-banner, section-placeholder
+                              empty-state (3 illustrations), page-skeleton, demo-banner
 src/components/theme/         theme provider + toggle
 src/components/auth/          login/register forms
-src/components/charts/        (stage 2) Recharts wrappers
-src/components/tables/        (stage 2) TanStack Table wrappers
+src/components/charts/        Recharts wrappers: movement-trend-chart, horizontal-bar-chart
+src/components/tables/        data-table (TanStack, manual mode), pagination, toolbar,
+                              products-table, movements-table, low-stock-table
+src/components/inventory/     badges, confirm-dialog, product-dialog, product-actions,
+                              product-combobox, movement-dialog
+src/components/catalog/       categories/suppliers tables and dialogs, colour picker,
+                              record-delete-dialog (explains "still in use")
+src/components/dashboard/     kpi-card
+src/components/reports/       report-exports (CSV download options)
+src/components/settings/      profile-form, password-form, theme-picker, users-section
+src/hooks/                    use-search-params-updater (URL-driven tables), use-product-search
 src/lib/                      auth.ts, auth.config.ts, db.ts, prisma-client.ts, permissions.ts,
                               stock.ts, errors.ts, rate-limit.ts, audit.ts, config.ts,
-                              constants.ts, navigation.ts, forms.ts, utils.ts
+                              constants.ts, navigation.ts, forms.ts, utils.ts,
+                              csv.ts, dates.ts, format.ts, metrics.ts, list-options.ts,
+                              search-params.ts, movement-form.ts (pure, unit-tested)
+src/lib/queries/              server-only reads that feed pages (plain JSON, no Decimals)
 src/lib/validations/          Zod schemas shared by forms and actions (import from the index)
-src/lib/actions/              guard.ts (requirePermission, createAction), auth.ts, movements.ts
+src/lib/actions/              guard.ts (requirePermission, createAction), auth.ts, movements.ts,
+                              products.ts, catalog.ts, users.ts, account.ts
 src/lib/seed/                 catalog, deterministic generator, seedDatabase()
 tests/unit                    Vitest (npm test)            tests/integration  real DB
 tests/e2e                     Playwright (fixtures.ts has accounts + console-error guard)
@@ -348,10 +488,13 @@ export const deleteSupplier = createAction(
   Recharts series (`chart-1` blue for IN, `chart-2` orange for OUT), badge variants `success`,
   `warning`, `danger`, `info` for stock status.
 
-### Stage-1 placeholders
+### Pages (stage 2)
 
-Each page under `src/app/(app)/*/page.tsx` currently renders `<SectionPlaceholder>`; stage 2
-replaces those files (and can then delete `section-placeholder.tsx`).
+Every page under `src/app/(app)` is a server component that checks its permission, reads its
+data through `src/lib/queries`, and hands plain JSON to client components; each has a
+`loading.tsx` skeleton. Tables are driven by URL search params (`useSearchParamsUpdater`), forms
+by react-hook-form with the shared schemas, and every mutation is a guarded server action that
+revalidates the affected pages.
 
 ### Commands
 
