@@ -9,7 +9,6 @@
 // docker-compose.yml offers the same thing for anyone who prefers Docker.
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import path from 'node:path';
 import EmbeddedPostgres from 'embedded-postgres';
 import { ROOT } from './lib/common.mjs';
@@ -21,29 +20,23 @@ const USER = 'postgres';
 const PASSWORD = 'postgres';
 const URL = `postgresql://${USER}:${PASSWORD}@localhost:${PORT}/${DATABASE}`;
 
-function pgCtlPath() {
-  // The platform package that embedded-postgres installed carries pg_ctl next to postgres.
-  const require = createRequire(import.meta.url);
-  const pkgs = {
+/** pg_ctl from the platform package that embedded-postgres installed (it exports the path). */
+async function pgCtlPath() {
+  const packages = {
     win32: '@embedded-postgres/windows-x64',
-    darwin:
-      process.arch === 'arm64'
-        ? '@embedded-postgres/darwin-arm64'
-        : '@embedded-postgres/darwin-x64',
-    linux:
-      process.arch === 'arm64' ? '@embedded-postgres/linux-arm64' : '@embedded-postgres/linux-x64',
+    darwin: `@embedded-postgres/darwin-${process.arch === 'arm64' ? 'arm64' : 'x64'}`,
+    linux: `@embedded-postgres/linux-${process.arch === 'arm64' ? 'arm64' : 'x64'}`,
   };
-  const pkgJson = require.resolve(`${pkgs[process.platform]}/package.json`);
-  const exe = process.platform === 'win32' ? 'pg_ctl.exe' : 'pg_ctl';
-  return path.join(path.dirname(pkgJson), 'native', 'bin', exe);
+  const { pg_ctl } = await import(packages[process.platform]);
+  return pg_ctl;
 }
 
-function stop() {
+async function stop() {
   if (!existsSync(path.join(DATA_DIR, 'postmaster.pid'))) {
     console.log('No local PostgreSQL server is running (no postmaster.pid).');
     return;
   }
-  const result = spawnSync(pgCtlPath(), ['stop', '-D', DATA_DIR, '-m', 'fast'], {
+  const result = spawnSync(await pgCtlPath(), ['stop', '-D', DATA_DIR, '-m', 'fast'], {
     stdio: 'inherit',
   });
   process.exit(result.status ?? 1);
@@ -104,12 +97,21 @@ async function start() {
   };
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
-  // Keep the event loop alive; embedded-postgres runs the server as a child process.
-  setInterval(() => {}, 1 << 30);
+  // Keep the event loop alive while the server runs, and exit once it is stopped from
+  // elsewhere (`npm run db:local:stop` removes postmaster.pid).
+  setInterval(() => {
+    if (!stopping && !existsSync(pidFile)) {
+      console.log('PostgreSQL was stopped.');
+      process.exit(0);
+    }
+  }, 2000);
 }
 
 if (process.argv[2] === 'stop') {
-  stop();
+  stop().catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
 } else {
   start().catch((error) => {
     console.error(error);
