@@ -16,8 +16,20 @@
 // the PostgreSQL server gracefully if this script started it - on Windows Playwright can
 // only force-kill its web servers.
 import http from 'node:http';
-import { buildSqliteDatabase, getProvider, loadEnv, prisma, tsx } from './lib/common.mjs';
-import { isPortOpen, localDatabaseUrl, startLocalPostgres } from './lib/local-postgres.mjs';
+import {
+  buildSqliteDatabase,
+  generateClient,
+  getProvider,
+  loadEnv,
+  prisma,
+  tsx,
+} from './lib/common.mjs';
+import {
+  isPortOpen,
+  localDatabaseUrl,
+  shutdownLocalPostgres,
+  startLocalPostgres,
+} from './lib/local-postgres.mjs';
 
 loadEnv();
 
@@ -37,6 +49,8 @@ async function prepare() {
     server = await startLocalPostgres();
   }
   const env = { DATABASE_URL: url, DATABASE_PROVIDER: 'postgresql' };
+  // The seed needs a PostgreSQL client; the last command run may have left a SQLite one.
+  generateClient('postgresql');
   prisma(['migrate', 'deploy'], { env });
   tsx(['prisma/seed.ts', '--reset-demo'], { env });
   return url.replace(/:[^:@/]+@/, ':***@');
@@ -47,7 +61,7 @@ async function shutdown() {
   const running = server;
   server = null;
   console.log('[e2e-db] stopping PostgreSQL ...');
-  await running.stop();
+  await shutdownLocalPostgres(running);
 }
 
 try {

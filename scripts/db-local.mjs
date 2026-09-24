@@ -12,6 +12,7 @@ import {
   PG_PID_FILE,
   PG_PORT,
   localDatabaseUrl,
+  shutdownLocalPostgres,
   startLocalPostgres,
   stopLocalPostgres,
 } from './lib/local-postgres.mjs';
@@ -28,7 +29,7 @@ async function start() {
     if (stopping) return;
     stopping = true;
     console.log('\nStopping PostgreSQL ...');
-    await pg.stop();
+    await shutdownLocalPostgres(pg);
     process.exit(0);
   };
   process.on('SIGINT', shutdown);

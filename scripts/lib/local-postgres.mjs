@@ -56,6 +56,16 @@ export async function stopLocalPostgres({ quiet = false } = {}) {
 }
 
 /**
+ * Stops a server this process started. `pg_ctl stop -m fast` first: on Windows the
+ * embedded-postgres `stop()` terminates the process abruptly and leaves postmaster.pid
+ * behind, while pg_ctl shuts it down cleanly on every platform.
+ */
+export async function shutdownLocalPostgres(pg) {
+  const code = await stopLocalPostgres({ quiet: true });
+  if (code !== 0) await pg.stop().catch(() => {});
+}
+
+/**
  * Starts the server (initialising .pg/data on first use) and makes sure the
  * `stockflow` database exists. A postmaster.pid left behind by a killed server is
  * removed when nothing is listening on the port; a live one is an error.
