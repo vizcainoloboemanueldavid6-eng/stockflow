@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { audit } from '@/lib/audit';
 import { prisma } from '@/lib/db';
 import { ConflictError, NotFoundError } from '@/lib/errors';
+import { assertUnique } from '@/lib/unique-checks';
 import {
   byIdSchema,
   categorySchema,
@@ -38,6 +39,7 @@ function stillUsedMessage(kind: 'category' | 'supplier', name: string, count: nu
 export const createCategory = createAction(
   { permission: 'category:create', schema: categorySchema },
   async (input, { user }) => {
+    await assertUnique('categoryName', input.name);
     const category = await prisma.$transaction(async (tx) => {
       const created = await tx.category.create({ data: input, select: { id: true, name: true } });
       await audit(tx, {
@@ -56,6 +58,7 @@ export const createCategory = createAction(
 export const updateCategory = createAction(
   { permission: 'category:update', schema: categoryUpdateSchema },
   async ({ id, ...data }, { user }) => {
+    await assertUnique('categoryName', data.name, id);
     const category = await prisma.$transaction(async (tx) => {
       const updated = await tx.category.update({
         where: { id },

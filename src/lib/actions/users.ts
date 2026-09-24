@@ -6,6 +6,7 @@ import { audit } from '@/lib/audit';
 import { prisma } from '@/lib/db';
 import { ForbiddenError, NotFoundError } from '@/lib/errors';
 import { userChangeRefusal } from '@/lib/permissions';
+import { assertUnique } from '@/lib/unique-checks';
 import { byIdSchema } from '@/lib/validations/catalog';
 import { userCreateSchema, userSetPasswordSchema, userUpdateSchema } from '@/lib/validations/user';
 import { createAction } from './guard';
@@ -27,6 +28,7 @@ export const createUser = createAction(
     if (user.role === 'DEMO' && input.role !== 'STAFF') {
       throw new ForbiddenError('The demo account can only create staff accounts.');
     }
+    await assertUnique('userEmail', input.email);
     const passwordHash = await hashPassword(password);
     const created = await prisma.$transaction(async (tx) => {
       const saved = await tx.user.create({

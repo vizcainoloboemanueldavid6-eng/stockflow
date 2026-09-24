@@ -98,7 +98,7 @@ test.describe('as admin', () => {
     await dialog.getByLabel('Unit cost ($)').fill('4.50');
     await dialog.getByLabel('Sale price ($)').fill('12.99');
     await dialog.getByRole('button', { name: 'Add product' }).click();
-    await expect(dialog.getByText('A record with this SKU already exists.')).toBeVisible();
+    await expect(dialog.getByText('Another product already uses this SKU.')).toBeVisible();
 
     await dialog.getByLabel('SKU').fill(sku);
     await dialog.getByRole('button', { name: 'Add product' }).click();

@@ -7,6 +7,7 @@ import { DEMO_EMAIL_MESSAGE, DEMO_PASSWORD_MESSAGE } from '@/lib/constants';
 import { prisma } from '@/lib/db';
 import { ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors';
 import { can } from '@/lib/permissions';
+import { assertUnique } from '@/lib/unique-checks';
 import { changePasswordSchema, profileSchema } from '@/lib/validations/user';
 import { createAction } from './guard';
 
@@ -22,6 +23,7 @@ export const updateProfile = createAction(
     if (email !== user.email && !can(user.role, 'profile:change-email')) {
       throw new ForbiddenError(DEMO_EMAIL_MESSAGE);
     }
+    if (email !== user.email) await assertUnique('userEmail', email, user.id);
     const updated = await prisma.$transaction(async (tx) => {
       const saved = await tx.user.update({
         where: { id: user.id },

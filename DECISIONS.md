@@ -327,8 +327,10 @@ server components render them and functions cannot cross into client components.
 
 ### Products: create, edit, archive, delete
 
-- Create and edit share one dialog and the shared Zod schema; a taken SKU comes back from the
-  database (unique index, P2002) and is shown under the SKU field.
+- Create and edit share one dialog and the shared Zod schema; a taken SKU is shown under the SKU
+  field. The action checks it first (`assertUnique()` in `src/lib/unique-checks.ts`, also used for
+  category names and emails) so an ordinary typo does not log a database error; the unique index
+  stays the guarantee, and a race that slips past the check (P2002) becomes the same field error.
 - Quantity is not a form field. Opening stock on create is an `IN` movement ("Opening stock") in
   the same transaction, so the ledger is complete from the first unit.
 - **Archive** (ADMIN/DEMO) hides a product from the active list, the dashboard and the valuation,

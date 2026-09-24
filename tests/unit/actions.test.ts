@@ -8,7 +8,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => {
   const tx = {
     product: { findUnique: vi.fn(), delete: vi.fn(), update: vi.fn() },
-    category: { findUnique: vi.fn(), delete: vi.fn() },
+    category: { findUnique: vi.fn(), delete: vi.fn(), update: vi.fn() },
     supplier: { findUnique: vi.fn(), delete: vi.fn() },
     user: { findUnique: vi.fn(), count: vi.fn(), update: vi.fn(), delete: vi.fn() },
     auditLog: { create: vi.fn() },
@@ -17,6 +17,8 @@ const mocks = vi.hoisted(() => {
     auth: vi.fn(),
     findCurrentUser: vi.fn(),
     transaction: vi.fn(async (fn: (client: typeof tx) => unknown) => fn(tx)),
+    productLookup: vi.fn(),
+    categoryLookup: vi.fn(),
     tx,
   };
 });
@@ -28,7 +30,12 @@ vi.mock('@/lib/auth', () => ({
   verifyPassword: vi.fn(async () => true),
 }));
 vi.mock('@/lib/db', () => ({
-  prisma: { user: { findUnique: mocks.findCurrentUser }, $transaction: mocks.transaction },
+  prisma: {
+    user: { findUnique: mocks.findCurrentUser },
+    product: { findUnique: mocks.productLookup },
+    category: { findUnique: mocks.categoryLookup },
+    $transaction: mocks.transaction,
+  },
 }));
 
 const products = await import('@/lib/actions/products');
@@ -263,5 +270,43 @@ describe('referential rules with clear messages', () => {
       error: expect.stringMatching(/Password section/),
     });
     expect(mocks.transaction).not.toHaveBeenCalled();
+  });
+
+  it('reports a taken SKU or category name on the field, before any write', async () => {
+    signInAs('ADMIN');
+    mocks.productLookup.mockResolvedValue({ id: 'other-product' });
+    await expect(
+      products.createProduct({
+        sku: 'CBL-101',
+        name: 'Duplicate',
+        description: '',
+        categoryId: 'c1',
+        supplierId: '',
+        unitCost: '1.00',
+        salePrice: '2.00',
+        reorderLevel: '1',
+        imageUrl: '',
+      }),
+    ).resolves.toEqual({
+      ok: false,
+      code: 'VALIDATION',
+      error: 'Another product already uses this SKU.',
+      fieldErrors: { sku: ['Another product already uses this SKU.'] },
+    });
+
+    mocks.categoryLookup.mockResolvedValue({ id: 'c-audio' });
+    await expect(
+      catalog.createCategory({ name: 'Audio', color: '#2563EB' }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'VALIDATION',
+      fieldErrors: { name: [expect.stringMatching(/already/)] },
+    });
+    // Renaming a category to its own name is not a conflict.
+    mocks.tx.category.update.mockResolvedValue({ id: 'c-audio', name: 'Audio' });
+    await expect(
+      catalog.updateCategory({ id: 'c-audio', name: 'Audio', color: '#2563EB' }),
+    ).resolves.toMatchObject({ ok: true });
+    expect(mocks.transaction).toHaveBeenCalledTimes(1);
   });
 });

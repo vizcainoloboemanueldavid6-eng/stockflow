@@ -5,6 +5,7 @@ import { audit } from '@/lib/audit';
 import { prisma } from '@/lib/db';
 import { ConflictError, NotFoundError, ValidationError } from '@/lib/errors';
 import { applyStockMovement } from '@/lib/stock';
+import { assertUnique } from '@/lib/unique-checks';
 import { byIdSchema } from '@/lib/validations/catalog';
 import {
   productArchiveSchema,
@@ -44,6 +45,7 @@ async function assertReferences(categoryId: string, supplierId: string | null) {
 export const createProduct = createAction(
   { permission: 'product:create', schema: productCreateSchema },
   async ({ initialQuantity, ...fields }, { user }) => {
+    await assertUnique('productSku', fields.sku);
     await assertReferences(fields.categoryId, fields.supplierId);
     const product = await prisma.$transaction(async (tx) => {
       const created = await tx.product.create({
@@ -76,6 +78,7 @@ export const createProduct = createAction(
 export const updateProduct = createAction(
   { permission: 'product:update', schema: productUpdateSchema },
   async ({ id, ...fields }, { user }) => {
+    await assertUnique('productSku', fields.sku, id);
     await assertReferences(fields.categoryId, fields.supplierId);
     const product = await prisma.$transaction(async (tx) => {
       const updated = await tx.product.update({
