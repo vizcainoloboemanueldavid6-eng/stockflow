@@ -5,6 +5,7 @@
 //   - prisma generate
 //   - on Vercel only (VERCEL=1): prisma migrate deploy, then seed if the database has no users,
 //     so the first deployment against an empty Neon database comes up with demo data.
+//     Both use DATABASE_URL_UNPOOLED (or DIRECT_URL) when set, else DATABASE_URL.
 //
 // SQLite (DATABASE_PROVIDER=sqlite) - the zero-external-service demo mode
 //   - derives prisma/sqlite/schema.prisma, generates the SQLite client,
@@ -41,8 +42,16 @@ try {
             'settings, or set DATABASE_PROVIDER=sqlite for the self-contained demo mode.',
         );
       }
-      prisma(['migrate', 'deploy']);
-      tsx(['prisma/seed.ts', '--if-empty']);
+      // Migrations take a session-level advisory lock, which a transaction-mode pooler
+      // (Neon's "-pooler" host) cannot hold reliably: use the direct connection when the
+      // project has one. Neon's Vercel integration sets DATABASE_URL_UNPOOLED itself.
+      const directUrl = process.env.DATABASE_URL_UNPOOLED || process.env.DIRECT_URL;
+      const env = directUrl ? { DATABASE_URL: directUrl } : {};
+      console.log(
+        `[build] migrations and first-run seed over the ${directUrl ? 'direct' : 'DATABASE_URL'} connection`,
+      );
+      prisma(['migrate', 'deploy'], { env });
+      tsx(['prisma/seed.ts', '--if-empty'], { env });
     }
   }
 

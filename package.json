@@ -24,7 +24,9 @@
     "db:reset-demo": "node scripts/db.mjs reset-demo",
     "db:local": "node scripts/db-local.mjs",
     "db:local:stop": "node scripts/db-local.mjs stop",
-    "db:sqlite": "node scripts/db.mjs sqlite"
+    "db:sqlite": "node scripts/db.mjs sqlite",
+    "postinstall": "node scripts/postinstall.mjs",
+    "shots": "node scripts/screenshots.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "5.9.1",
@@ -86,5 +88,23 @@
     "firefox >= 121",
     "safari >= 16.4",
     "not dead"
-  ]
+  ],
+  "overrides": {
+    "deepmerge-ts": "8.0.2",
+    "next": {
+      "postcss": "8.5.28"
+    }
+  },
+  "allowScripts": {
+    "@embedded-postgres/darwin-arm64": true,
+    "@embedded-postgres/darwin-x64": true,
+    "@embedded-postgres/linux-arm64": true,
+    "@embedded-postgres/linux-x64": true,
+    "@embedded-postgres/windows-x64": true,
+    "@prisma/client": true,
+    "@prisma/engines": true,
+    "esbuild": true,
+    "prisma": true,
+    "unrs-resolver": true
+  }
 }

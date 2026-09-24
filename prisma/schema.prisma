@@ -2,7 +2,7 @@
 //
 // This is the source of truth for BOTH database modes:
 //   - PostgreSQL (default): used as-is by `prisma migrate`, `db:deploy`, `db:generate`.
-//   - SQLite (DATABASE_PROVIDER=sqlite): scripts/lib/prisma-provider.mjs derives
+//   - SQLite (DATABASE_PROVIDER=sqlite): scripts/lib/common.mjs (writeSqliteSchema) derives
 //     prisma/sqlite/schema.prisma from this file by swapping the provider and
 //     stripping the Postgres-only `@db.*` native type attributes. Never edit the
 //     generated copy; keep this file portable (no Postgres-only features beyond `@db.*`).
