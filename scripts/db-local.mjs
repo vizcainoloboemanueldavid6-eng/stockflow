@@ -7,84 +7,20 @@
 // Data lives in .pg/data (git-ignored). Connection string:
 //   postgresql://postgres:postgres@localhost:54329/stockflow
 // docker-compose.yml offers the same thing for anyone who prefers Docker.
-import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
-import path from 'node:path';
-import EmbeddedPostgres from 'embedded-postgres';
-import { ROOT } from './lib/common.mjs';
-
-const PORT = Number(process.env.PG_LOCAL_PORT ?? 54329);
-const DATA_DIR = path.join(ROOT, '.pg', 'data');
-const DATABASE = 'stockflow';
-const USER = 'postgres';
-const PASSWORD = 'postgres';
-const URL = `postgresql://${USER}:${PASSWORD}@localhost:${PORT}/${DATABASE}`;
-
-/** pg_ctl from the platform package that embedded-postgres installed (it exports the path). */
-async function pgCtlPath() {
-  const packages = {
-    win32: '@embedded-postgres/windows-x64',
-    darwin: `@embedded-postgres/darwin-${process.arch === 'arm64' ? 'arm64' : 'x64'}`,
-    linux: `@embedded-postgres/linux-${process.arch === 'arm64' ? 'arm64' : 'x64'}`,
-  };
-  const { pg_ctl } = await import(packages[process.platform]);
-  return pg_ctl;
-}
-
-async function stop() {
-  if (!existsSync(path.join(DATA_DIR, 'postmaster.pid'))) {
-    console.log('No local PostgreSQL server is running (no postmaster.pid).');
-    return;
-  }
-  const result = spawnSync(await pgCtlPath(), ['stop', '-D', DATA_DIR, '-m', 'fast'], {
-    stdio: 'inherit',
-  });
-  process.exit(result.status ?? 1);
-}
+import { existsSync } from 'node:fs';
+import {
+  PG_PID_FILE,
+  PG_PORT,
+  localDatabaseUrl,
+  startLocalPostgres,
+  stopLocalPostgres,
+} from './lib/local-postgres.mjs';
 
 async function start() {
-  const pidFile = path.join(DATA_DIR, 'postmaster.pid');
-  if (existsSync(pidFile)) {
-    const pid = readFileSync(pidFile, 'utf8').split(/\r?\n/)[0];
-    console.log(
-      `A server already seems to be running on this data directory (postmaster.pid, PID ${pid}).\n` +
-        'Stop it with `npm run db:local:stop` first, or delete .pg/data/postmaster.pid if it is stale.',
-    );
-    process.exit(1);
-  }
+  const pg = await startLocalPostgres();
 
-  const pg = new EmbeddedPostgres({
-    databaseDir: DATA_DIR,
-    port: PORT,
-    user: USER,
-    password: PASSWORD,
-    authMethod: 'scram-sha-256',
-    persistent: true,
-    initdbFlags: ['--encoding=UTF8', '--locale=C'],
-    onLog: () => {},
-    onError: (message) => {
-      const text = String(message ?? '').trim();
-      if (text) console.error(`[postgres] ${text}`);
-    },
-  });
-
-  if (!existsSync(path.join(DATA_DIR, 'PG_VERSION'))) {
-    console.log(`Initialising a new cluster in ${path.relative(ROOT, DATA_DIR)} ...`);
-    await pg.initialise();
-  }
-
-  await pg.start();
-
-  const client = pg.getPgClient('postgres', 'localhost');
-  await client.connect();
-  const { rowCount } = await client.query('SELECT 1 FROM pg_database WHERE datname = $1', [
-    DATABASE,
-  ]);
-  if (!rowCount) await client.query(`CREATE DATABASE "${DATABASE}"`);
-  await client.end();
-
-  console.log(`\nPostgreSQL is ready on port ${PORT}.`);
-  console.log(`DATABASE_URL="${URL}"`);
+  console.log(`\nPostgreSQL is ready on port ${PG_PORT}.`);
+  console.log(`DATABASE_URL="${localDatabaseUrl()}"`);
   console.log('\nNext: npm run db:deploy && npm run db:seed   (Ctrl+C to stop the server)\n');
 
   let stopping = false;
@@ -100,21 +36,15 @@ async function start() {
   // Keep the event loop alive while the server runs, and exit once it is stopped from
   // elsewhere (`npm run db:local:stop` removes postmaster.pid).
   setInterval(() => {
-    if (!stopping && !existsSync(pidFile)) {
+    if (!stopping && !existsSync(PG_PID_FILE)) {
       console.log('PostgreSQL was stopped.');
       process.exit(0);
     }
   }, 2000);
 }
 
-if (process.argv[2] === 'stop') {
-  stop().catch((error) => {
-    console.error(error);
-    process.exit(1);
-  });
-} else {
-  start().catch((error) => {
-    console.error(error);
-    process.exit(1);
-  });
-}
+const task = process.argv[2] === 'stop' ? stopLocalPostgres().then(process.exit) : start();
+task.catch((error) => {
+  console.error(error instanceof Error ? error.message : error);
+  process.exit(1);
+});
