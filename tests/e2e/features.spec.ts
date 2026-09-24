@@ -1,25 +1,82 @@
+import { readFile } from 'node:fs/promises';
 import type { Page } from '@playwright/test';
-import { expect, signIn, test } from './fixtures';
+import { expect, pickOption, rowActions, signIn, test, toast, unique } from './fixtures';
 
 /*
  * Feature pages (stage 2) against the seeded database, on the production build.
  * Tests that create records use unique names and remove what they create, so the
- * suite can run repeatedly without re-seeding (movements are append-only by
- * design, so the movement test only adds one stock-in per run).
+ * suite can also run repeatedly against one database (movements are append-only by
+ * design, so the movement tests add a few rows per run).
  */
 
-const unique = () => `${Date.now().toString(36)}${Math.floor(Math.random() * 1e4)}`.toUpperCase();
+const PRODUCT_HEADER = [
+  'SKU',
+  'Name',
+  'Category',
+  'Supplier',
+  'Quantity',
+  'Reorder level',
+  'Stock status',
+  'Unit cost',
+  'Sale price',
+  'Stock value at cost',
+  'Archived',
+  'Description',
+  'Created',
+  'Updated',
+];
+const MOVEMENT_HEADER = ['Date', 'Type', 'SKU', 'Product', 'Change (units)', 'Reason', 'User'];
 
-const toast = (page: Page, text: string | RegExp) =>
-  page.locator('[data-sonner-toast]').filter({ hasText: text }).first();
-
-async function pickOption(page: Page, label: string, option: string | RegExp) {
-  await page.getByLabel(label, { exact: true }).click();
-  await page.getByRole('option', { name: option }).click();
+/** RFC 4180 reader (quoted fields, doubled quotes, CRLF), independent of the app's writer. */
+function parseCsv(text: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = '';
+  let quoted = false;
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    if (quoted) {
+      if (char === '"' && text[i + 1] === '"') {
+        field += '"';
+        i++;
+      } else if (char === '"') quoted = false;
+      else field += char;
+    } else if (char === '"') quoted = true;
+    else if (char === ',') {
+      row.push(field);
+      field = '';
+    } else if (char === '\r' && text[i + 1] === '\n') {
+      row.push(field);
+      rows.push(row);
+      row = [];
+      field = '';
+      i++;
+    } else field += char;
+  }
+  if (field || row.length) rows.push([...row, field]);
+  return rows;
 }
 
-async function rowActions(page: Page, name: string) {
-  await page.getByRole('button', { name: `Actions for ${name}` }).click();
+/** The "of N <things>" total under a server-paged table. */
+async function tableTotal(page: Page): Promise<number> {
+  const text = await page
+    .getByRole('navigation', { name: 'Pagination' })
+    .getByText(/^Showing .* of [\d,]+ /)
+    .textContent();
+  return Number(text!.match(/of ([\d,]+)/)![1].replace(/,/g, ''));
+}
+
+/** Clicks a download link and returns the saved file's name and parsed rows. */
+async function downloadCsv(page: Page, testId: string) {
+  const pending = page.waitForEvent('download');
+  await page.getByTestId(testId).click();
+  const download = await pending;
+  const bytes = await readFile((await download.path())!);
+  expect([...bytes.subarray(0, 3)], 'UTF-8 BOM').toEqual([0xef, 0xbb, 0xbf]);
+  return {
+    filename: download.suggestedFilename(),
+    rows: parseCsv(bytes.subarray(3).toString('utf8')),
+  };
 }
 
 test.describe('as admin', () => {
@@ -36,6 +93,32 @@ test.describe('as admin', () => {
     // Two line series (in, out) and five best-seller bars.
     await expect(page.locator('.recharts-line-curve')).toHaveCount(2);
     await expect(page.locator('.recharts-bar-rectangle')).toHaveCount(5);
+    // ...drawn from real data: each chart has an accessible table with the same numbers.
+    const trend = page.locator('table:has(caption:text("Units in and out per day")) tbody tr');
+    await expect(trend).toHaveCount(30);
+    const totals = await trend.evaluateAll((rows) =>
+      rows.reduce(
+        (sum, row) => {
+          const [units_in, units_out] = [...row.querySelectorAll('td')].map((td) =>
+            Number(td.textContent?.replace(/,/g, '')),
+          );
+          return { in: sum.in + units_in, out: sum.out + units_out };
+        },
+        { in: 0, out: 0 },
+      ),
+    );
+    expect(totals.in).toBeGreaterThan(0);
+    expect(totals.out).toBeGreaterThan(0);
+    for (const path of await page.locator('.recharts-line-curve').all()) {
+      expect((await path.getAttribute('d'))?.length ?? 0).toBeGreaterThan(50);
+    }
+    const sold = await page
+      .locator('table:has(caption:text("Units sold per product")) tbody td')
+      .allTextContents();
+    expect(sold).toHaveLength(5);
+    const units = sold.map((text) => Number(text.replace(/,/g, '')));
+    for (const value of units) expect(value).toBeGreaterThan(0);
+    expect([...units].sort((a, b) => b - a)).toEqual(units); // best seller first
     const alerts = page.locator('#low-stock-alerts tbody tr');
     expect(await alerts.count()).toBeGreaterThan(0);
     await expect(alerts.first().getByRole('button', { name: /Restock/ })).toBeVisible();
@@ -174,6 +257,43 @@ test.describe('as admin', () => {
     await expect(first).toContainText('+1');
   });
 
+  test('movements: stock out and stock in change the quantity by exactly that amount', async ({
+    page,
+  }) => {
+    // The best-stocked product, so a stock-out of 2 is always possible.
+    await page.goto('/products?sort=quantity&dir=desc');
+    await page.locator('table tbody a[href^="/products/"]').first().click();
+    await page.waitForURL(/\/products\/[^/?]+$/);
+    const onHand = page
+      .getByRole('region', { name: 'Stock summary' })
+      .locator('[data-slot=card]')
+      .filter({ hasText: /^On hand/ })
+      .locator('p')
+      .nth(1);
+    const units = async () => Number((await onHand.textContent())!.replace(/[^\d]/g, ''));
+    const before = await units();
+    expect(before).toBeGreaterThanOrEqual(2);
+
+    await page.getByRole('button', { name: 'Register movement' }).first().click();
+    const dialog = page.getByRole('dialog', { name: 'Register movement' });
+    await dialog.getByRole('radio', { name: 'Stock out' }).click();
+    await dialog.getByLabel('Quantity (units)').fill('2');
+    await expect(dialog.getByTestId('stock-preview')).toContainText(
+      `→ ${(before - 2).toLocaleString('en-US')} after`,
+    );
+    await dialog.getByRole('button', { name: 'Record stock out' }).click();
+    await expect(toast(page, 'Stock out recorded')).toBeVisible();
+    await expect(onHand).toHaveText(`${(before - 2).toLocaleString('en-US')} units`);
+    await expect(page.locator('table tbody tr').first()).toContainText('-2');
+
+    await page.getByRole('button', { name: 'Register movement' }).first().click();
+    await dialog.getByRole('radio', { name: 'Stock in' }).click();
+    await dialog.getByLabel('Quantity (units)').fill('2');
+    await dialog.getByRole('button', { name: 'Record stock in' }).click();
+    await expect(toast(page, 'Stock in recorded')).toBeVisible();
+    await expect(onHand).toHaveText(`${before.toLocaleString('en-US')} units`);
+  });
+
   test('movements: history filters by type, user and date range', async ({ page }) => {
     await page.goto('/movements?type=ADJUSTMENT');
     await expect(page.locator('table tbody tr').first()).toBeVisible();
@@ -196,17 +316,29 @@ test.describe('as admin', () => {
     await expect(page.locator('table tbody tr')).toHaveCount(10);
   });
 
-  test('categories: colour picker, in-use block, create and delete', async ({ page }) => {
-    const name = `E2E ${unique()}`;
+  test('categories: colour picker, create, edit, in-use block and delete', async ({ page }) => {
+    const first = `E2E ${unique()}`;
+    const name = `${first} renamed`;
     await page.goto('/categories');
     await page.getByTestId('add-category').click();
     const dialog = page.getByRole('dialog', { name: 'Add category' });
-    await dialog.getByLabel('Name').fill(name);
+    await dialog.getByLabel('Name').fill(first);
     await dialog.getByRole('radio', { name: '#10B981' }).click();
     await expect(dialog.getByLabel('Hex colour code')).toHaveValue('#10B981');
     await dialog.getByRole('button', { name: 'Add category' }).click();
     await expect(toast(page, 'Category added')).toBeVisible();
+    await expect(page.getByRole('cell', { name: first, exact: true })).toBeVisible();
+
+    await rowActions(page, first);
+    await page.getByRole('menuitem', { name: 'Edit' }).click();
+    const edit = page.getByRole('dialog', { name: 'Edit category' });
+    await expect(edit.getByLabel('Hex colour code')).toHaveValue('#10B981');
+    await edit.getByLabel('Name').fill(name);
+    await edit.getByLabel('Hex colour code').fill('#F59E0B');
+    await edit.getByRole('button', { name: 'Save changes' }).click();
+    await expect(toast(page, 'Category updated')).toBeVisible();
     await expect(page.getByRole('cell', { name, exact: true })).toBeVisible();
+    await expect(page.getByRole('cell', { name: first, exact: true })).toBeHidden();
 
     await rowActions(page, 'Audio');
     await page.getByRole('menuitem', { name: 'Delete' }).click();
@@ -254,9 +386,7 @@ test.describe('as admin', () => {
     await expect(toast(page, 'Supplier deleted')).toBeVisible();
   });
 
-  test('reports: CSV exports with BOM, header and dated filename; valuation table', async ({
-    page,
-  }) => {
+  test('reports: CSV headers, BOM and dated filenames; valuation table', async ({ page }) => {
     await page.goto('/reports');
     await expect(
       page.getByRole('heading', { name: 'Inventory valuation by category' }),
@@ -271,16 +401,51 @@ test.describe('as admin', () => {
     );
     const body = await products.body();
     expect([...body.subarray(0, 3)]).toEqual([0xef, 0xbb, 0xbf]);
-    const lines = body.subarray(3).toString('utf8').split('\r\n');
-    expect(lines[0]).toBe(
-      'SKU,Name,Category,Supplier,Quantity,Reorder level,Stock status,Unit cost,Sale price,Stock value at cost,Archived,Description,Created,Updated',
-    );
-    expect(lines.filter(Boolean).length).toBeGreaterThanOrEqual(61);
+    expect(parseCsv(body.subarray(3).toString('utf8'))[0]).toEqual(PRODUCT_HEADER);
 
-    const download = page.waitForEvent('download');
-    await page.getByTestId('download-movements-csv').click();
-    const file = await download;
-    expect(file.suggestedFilename()).toMatch(/^stockflow-movements-\d{4}-\d{2}-\d{2}\.csv$/);
+    // The Reports page download (active products) has one row per active product.
+    await page.goto('/products');
+    const active = await tableTotal(page);
+    await page.goto('/reports');
+    const all = await downloadCsv(page, 'download-products-csv');
+    expect(all.filename).toMatch(/^stockflow-products-\d{4}-\d{2}-\d{2}\.csv$/);
+    expect(all.rows[0]).toEqual(PRODUCT_HEADER);
+    expect(all.rows.length - 1).toBe(active);
+
+    const movements = await downloadCsv(page, 'download-movements-csv');
+    expect(movements.filename).toMatch(/^stockflow-movements-\d{4}-\d{2}-\d{2}\.csv$/);
+    expect(movements.rows[0]).toEqual(MOVEMENT_HEADER);
+    expect(movements.rows.length).toBeGreaterThan(1);
+  });
+
+  test('CSV exports match the filtered tables row for row', async ({ page }) => {
+    // Products: the table's own export button sends the same filters.
+    await page.goto('/products?q=cable');
+    const matching = await tableTotal(page);
+    expect(matching).toBeGreaterThan(0);
+    const products = await downloadCsv(page, 'export-products');
+    expect(products.rows[0]).toEqual(PRODUCT_HEADER);
+    expect(products.rows.length - 1).toBe(matching);
+    const name = PRODUCT_HEADER.indexOf('Name');
+    for (const row of products.rows.slice(1)) {
+      expect(row).toHaveLength(PRODUCT_HEADER.length); // quoting kept every row intact
+      expect(row[name].toLowerCase()).toContain('cable');
+    }
+
+    // Movements: every stock-in, signed and labelled.
+    await page.goto('/movements?type=IN');
+    const received = await tableTotal(page);
+    expect(received).toBeGreaterThan(0);
+    const movements = await downloadCsv(page, 'export-movements');
+    expect(movements.rows[0]).toEqual(MOVEMENT_HEADER);
+    expect(movements.rows.length - 1).toBe(received);
+    for (const row of movements.rows.slice(1)) {
+      expect(row).toHaveLength(MOVEMENT_HEADER.length);
+      expect(row[1]).toBe('Stock in');
+      expect(row[4]).toMatch(/^\d+$/);
+      expect(Number(row[4])).toBeGreaterThan(0);
+      expect(row[0]).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+    }
   });
 
   test('settings: profile, theme and user management', async ({ page }) => {
