@@ -25,7 +25,11 @@ export function MovementTrendChart({
     <figure className="space-y-3">
       <figcaption className="flex flex-wrap gap-x-5 gap-y-1">
         <LegendKey color={IN_COLOR} label="Stock in" value={`${formatNumber(totals.in)} units`} />
-        <LegendKey color={OUT_COLOR} label="Stock out" value={`${formatNumber(totals.out)} units`} />
+        <LegendKey
+          color={OUT_COLOR}
+          label="Stock out"
+          value={`${formatNumber(totals.out)} units`}
+        />
       </figcaption>
       <div aria-hidden="true">
         <LineChart

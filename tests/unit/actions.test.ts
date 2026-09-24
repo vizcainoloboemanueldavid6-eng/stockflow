@@ -56,7 +56,10 @@ describe('STAFF is refused by the server, not just hidden in the UI', () => {
     ['setProductArchived', () => products.setProductArchived({ id: 'p1', archived: true })],
     ['createCategory', () => catalog.createCategory({ name: 'Drones', color: '#2563EB' })],
     ['deleteCategory', () => catalog.deleteCategory({ id: 'c1' })],
-    ['createSupplier', () => catalog.createSupplier({ name: 'Harbor Parts' })],
+    [
+      'createSupplier',
+      () => catalog.createSupplier({ name: 'Harbor Parts', email: '', phone: '', notes: '' }),
+    ],
     ['deleteSupplier', () => catalog.deleteSupplier({ id: 's1' })],
     [
       'createUser',

@@ -1,4 +1,11 @@
-import { ArrowDownLeft, ArrowUpRight, CircleAlert, CircleCheck, CircleX, Scale } from 'lucide-react';
+import {
+  ArrowDownLeft,
+  ArrowUpRight,
+  CircleAlert,
+  CircleCheck,
+  CircleX,
+  Scale,
+} from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import {
   MOVEMENT_TYPE_LABELS,
@@ -8,14 +15,23 @@ import {
 } from '@/lib/constants';
 import { cn } from '@/lib/utils';
 
-const STATUS_STYLE: Record<StockStatus, { variant: 'success' | 'warning' | 'danger'; icon: typeof CircleCheck }> = {
+const STATUS_STYLE: Record<
+  StockStatus,
+  { variant: 'success' | 'warning' | 'danger'; icon: typeof CircleCheck }
+> = {
   in_stock: { variant: 'success', icon: CircleCheck },
   low_stock: { variant: 'warning', icon: CircleAlert },
   out_of_stock: { variant: 'danger', icon: CircleX },
 };
 
 /** Stock status with an icon and a label, never colour alone. */
-export function StockStatusBadge({ status, className }: { status: StockStatus; className?: string }) {
+export function StockStatusBadge({
+  status,
+  className,
+}: {
+  status: StockStatus;
+  className?: string;
+}) {
   const { variant, icon: Icon } = STATUS_STYLE[status];
   return (
     <Badge variant={variant} className={className} data-status={status}>
