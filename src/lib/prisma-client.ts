@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, renameSync, statSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, renameSync, statSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { PrismaClient } from '@prisma/client';
@@ -52,6 +52,10 @@ export function ensureWritableSqliteCopy(source = bundledSqlitePath()): string {
     // Copy then rename: concurrent workers never see a half-written file.
     const partial = `${target}.${process.pid}.${Date.now()}.tmp`;
     copyFileSync(source, partial);
+    // copyFile keeps the source's permission bits. A deployment bundle can ship the file
+    // read-only, and SQLite would then refuse every write ("attempt to write a readonly
+    // database"), so the copy is always made writable.
+    chmodSync(partial, 0o644);
     renameSync(partial, target);
   }
   return target;
