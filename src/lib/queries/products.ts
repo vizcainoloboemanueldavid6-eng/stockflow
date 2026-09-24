@@ -1,5 +1,6 @@
 import 'server-only';
 import type { Prisma } from '@prisma/client';
+import { cache } from 'react';
 import { type StockStatus, stockStatus } from '@/lib/constants';
 import { appTimeZone } from '@/lib/dates';
 import { containsText, prisma, toNumber } from '@/lib/db';
@@ -160,10 +161,11 @@ export async function findProductsForExport(
   }));
 }
 
-export async function getProduct(id: string): Promise<ProductRow | null> {
+/** One product; memoised per request (the detail page's metadata and body both ask). */
+export const getProduct = cache(async (id: string): Promise<ProductRow | null> => {
   const product = await prisma.product.findUnique({ where: { id }, select: productSelect });
   return product ? toProductRow(product, appTimeZone()) : null;
-}
+});
 
 export type Option = { id: string; name: string };
 export type CategoryOption = Option & { color: string };
