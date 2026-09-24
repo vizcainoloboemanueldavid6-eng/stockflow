@@ -396,6 +396,135 @@ same transaction.
 
 ---
 
+## Tests, docs and shipping (stage 3)
+
+### `npm run test:e2e` starts everything itself
+
+The spec asks for `npm run test:e2e` to pass, so it must not depend on servers someone remembered
+to start. Playwright's `webServer` list runs, in order:
+
+1. `scripts/e2e-db.mjs`: uses the embedded PostgreSQL on :54329 (starts it when nothing listens
+   there, reuses a running `npm run db:local`), then `prisma migrate deploy` and the demo reset on
+   a **separate `stockflow_e2e` database**. Every run starts from the same seeded state and the
+   development database is never touched. It answers `/ready` on :3119 once done.
+2. `scripts/e2e-server.mjs`: `npm run build`, then `next start` on :3100.
+3. The same build on :3101 with `ALLOW_REGISTRATION=false` and `DEMO_ENABLED=false`.
+
+`E2E_SKIP_BUILD=1` reuses the current build; `E2E_BASE_URL` runs against servers started by hand.
+On Windows Playwright can only force-kill web servers, so a global teardown asks the database
+script (`/shutdown`) to stop PostgreSQL first, and only if that script started it. The stop uses
+`pg_ctl stop -m fast`: embedded-postgres' own `stop()` terminates the server abruptly on Windows
+and left `postmaster.pid` behind in an early run. A stale `postmaster.pid` (nothing listening on
+the port) is removed on the next start. In SQLite mode the script rebuilds and seeds the SQLite
+file instead.
+
+### Direct server-action calls: record and replay
+
+The spec: STAFF cannot delete, "also calling the action directly", in e2e. Server-action ids are
+build-specific hashes and are not exposed, and a test-only route handler would add production code
+that the real UI never uses. So the e2e test records the real request an admin's browser sends
+(`Next-Action` header + serialised arguments) and replays it with the STAFF session cookie, with the
+target id swapped for another deletable record. The server must answer `FORBIDDEN` and the record
+must still exist; the same replay with the admin's cookie deletes it (positive control, which proves
+the replay really reaches the action). The same technique covers DEMO changing its password and the
+register / demo-login actions on the server started with both switches off. An integration test
+(`tests/integration/actions.test.ts`) calls the real actions against the real database with only
+the session mocked, including a session that _claims_ ADMIN for the STAFF account.
+
+### Concurrency on PostgreSQL, and what SQLite does
+
+`tests/integration/database.test.ts` forces the interleaving instead of hoping for it: the first
+transaction takes 7 of 10 units and stays open; the test waits until `pg_stat_activity` shows the
+second transaction waiting on the row lock, then commits the first. Under READ COMMITTED the second
+`UPDATE ... WHERE quantity >= 7` is re-evaluated on the committed row (3 units), matches nothing
+and fails with "Not enough stock: 3 available, tried to remove 7." The unit tests run the same
+scenario on an in-memory fake, plus a control showing that a read-then-write version overdraws.
+
+**SQLite** (`DATABASE_PROVIDER=sqlite npm run test:integration`, all green) has no row locks: a
+write transaction locks the whole database file, so writers run one after another. Observed: in
+the overlapping case the second transaction only proceeds after the first commits and gets the
+same "3 available, tried to remove 7" error; 8 simultaneous OUTs of 3 on a stock of 10 gave exactly
+3 successes and 5 `InsufficientStockError`s. The same conditional `UPDATE` therefore protects both
+modes. The difference is under heavy load: a writer that waits longer than SQLite's busy timeout
+fails with a "database is locked" error instead of the stock message (still no overdraw). There is
+no `CHECK` constraint in SQLite mode (Prisma cannot express it portably), which is acceptable for a
+demo database.
+
+### SQLite demo: the temp copy is always writable
+
+The Vercel-style check (SQLite build, `next start` with `TEMP`/`TMP` pointed at an empty folder,
+the bundled `stockflow.db` marked read-only like a deployment bundle) found that `copyFileSync`
+keeps the source's permission bits: the copy was read-only too and every write failed with
+"attempt to write a readonly database". `ensureWritableSqliteCopy()` now `chmod`s the copy to
+0644 before using it (unit test fails without the fix). With it, "Try the demo" plus a movement
+worked, the full e2e suite passed against that server (44/44), and the bundled file's SHA-256 was
+unchanged afterwards.
+
+### Vercel builds: migrations over the direct connection
+
+Neon's pooled host is PgBouncer in transaction mode, which cannot keep the session-level advisory
+lock `prisma migrate deploy` takes. On Vercel the build therefore runs the migrations and the
+first-run seed with `DATABASE_URL_UNPOOLED` (set by Neon's Vercel integration) or `DIRECT_URL` when
+present, and the app keeps using the pooled `DATABASE_URL`. No `directUrl` in the schema, because
+that would make a second variable mandatory for every local setup.
+
+### `postinstall`, and npm 11's install-script approvals
+
+`postinstall` runs `scripts/postinstall.mjs`, which generates the Prisma Client for
+`DATABASE_PROVIDER` (skipped with a notice when the Prisma CLI is absent, e.g. `--omit=dev`). It
+guards against Vercel restoring a cached `node_modules` with a stale client. npm 11.19 (the version
+on the development machine) blocks dependency install scripts unless `package.json` lists them in
+`allowScripts`; the Prisma engines download, esbuild, the ESLint resolver and embedded-postgres all
+have one. They are approved by name (not pinned to versions, so upgrades do not silently disable
+them), including the Linux and macOS embedded-postgres packages that never install on Windows.
+Older npm versions, such as the one Vercel uses, ignore the field.
+
+### Dependency audit
+
+`npm audit --omit=dev` reported 4 high and 1 moderate:
+
+- `deepmerge-ts < 8` through `prisma` → `@prisma/config` (stack exhaustion on recursive objects).
+  The only fix npm offered was downgrading Prisma to 6.12. `@prisma/config` only calls
+  `deepmerge()` to load an optional `prisma.config.ts`, which v8 still exports, so an override pins
+  `deepmerge-ts` to **8.0.2**; `prisma generate`, `migrate deploy` and the seed were re-run with it.
+- `postcss <= 8.5.22` bundled by `next` (build-time CSS processing), which npm could only fix by
+  jumping to Next 16. An override gives Next the project's own **postcss 8.5.28** (same major).
+  `next build` and the full e2e suite were re-run with it.
+
+Result: `npm audit --omit=dev` and the full `npm audit` both report 0 vulnerabilities.
+
+### Screenshots
+
+`npm run shots` signs in as the admin and captures dashboard, products and movements at 1440 px
+and 390 px in both themes (`docs/<page>-<width>-<theme>.jpg`, JPEG like the owner's other
+projects). Instead of Playwright's `fullPage`, the viewport is grown to the page height first: the
+sidebar is `100dvh` tall and would otherwise stop halfway down a full-page capture. Phone captures
+use a 2x device scale so they stay legible when GitHub shrinks them. The script fails on any console
+error or HTTP error while capturing.
+
+### A 404 page logs one line in Chrome
+
+Chrome prints "Failed to load resource: ... 404" for any document that answers 404, including the
+app's own not-found page. The console sweep accepts exactly that line for the deliberately missing
+URL and nothing else; every real page is required to have zero console errors.
+
+### How each database mode was verified
+
+| Mode                                      | What was run                                                                                                                                                                                         | Result                                 |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
+| Embedded PostgreSQL (default)             | `npm run test:e2e` from a stopped server (build, seed, both servers); `npm run test:integration`; `db:seed` then the dashboard test                                                                  | 44/44, 18/18, charts with data         |
+| SQLite quick mode                         | `npm run db:sqlite`, `next dev` with `DATABASE_PROVIDER=sqlite`, "Try the demo" + a movement, console sweep on the dev server; `DATABASE_PROVIDER=sqlite npm run test:e2e`; SQLite integration suite | all passed (44/44 e2e, 17/17 + 1 skip) |
+| Vercel-style ephemeral SQLite             | `DATABASE_PROVIDER=sqlite npm run build`, `next start` with `TEMP`/`TMP` on an empty folder and a read-only bundled file, demo + movement, full e2e against it                                       | 44/44 after the writable-copy fix      |
+| Clean clone, `.env.example` values        | `git clone`, `cp .env.example .env`, `npm ci` (npm 11.19: no skipped install scripts), `npm run build`                                                                                               | build passed                           |
+| Vercel build path (`VERCEL=1`, no `.env`) | Two builds with an unreachable `DATABASE_URL` and `DATABASE_URL_UNPOOLED` on an empty database: first migrated and seeded (3 users, 60 products, 400 movements), second skipped the seed             | both passed                            |
+
+Not verified here: a real Linux build and a real Vercel/Neon deployment (no Linux machine, and
+this stage does not deploy). The scripts are plain Node with `path.join` and `process.execPath`,
+no shell syntax, and the schema already generates the `rhel-openssl-3.0.x` engine Vercel uses (it
+is present in `node_modules/.prisma/client` and in the traced server bundle).
+
+---
+
 ## Architecture
 
 ### Layout
@@ -403,7 +532,10 @@ same transaction.
 ```
 prisma/schema.prisma          source of truth for both providers (+ migrations/, seed.ts CLI)
 scripts/                      build.mjs, db.mjs (provider-aware db:* commands), db-local.mjs,
-                              lib/common.mjs (sqlite schema derivation), seed-stats.ts (tuning)
+                              postinstall.mjs, e2e-db.mjs + e2e-server.mjs (test:e2e servers),
+                              screenshots.mjs (npm run shots), seed-stats.ts (tuning),
+                              lib/common.mjs (sqlite schema derivation, CLI runners),
+                              lib/local-postgres.mjs (embedded PostgreSQL)
 src/middleware.ts             edge auth gate
 src/app/(auth)/               login, register (+ split-screen layout)
 src/app/(app)/                every signed-in page; layout.tsx = shell + fresh user
@@ -437,7 +569,9 @@ src/lib/actions/              guard.ts (requirePermission, createAction), auth.t
                               products.ts, catalog.ts, users.ts, account.ts
 src/lib/seed/                 catalog, deterministic generator, seedDatabase()
 tests/unit                    Vitest (npm test)            tests/integration  real DB
-tests/e2e                     Playwright (fixtures.ts has accounts + console-error guard)
+tests/e2e                     Playwright (fixtures.ts: accounts, console-error guard,
+                              server-action record/replay); *.closed.spec.ts = closed server
+docs/                         README screenshots, DEPLOY.es.md (Neon + GitHub + Vercel)
 ```
 
 ### Writing a server action (stage 2)
@@ -506,6 +640,8 @@ npm run db:deploy && npm run db:seed
 npm run dev                          # or: npm run build && npm start
 npm test                             # unit tests
 npm run test:integration             # real database (re-seeds it!)
-npm run test:e2e                     # production build on :3100, seeded database
+npm run test:e2e                     # builds, seeds stockflow_e2e, serves :3100 and :3101
+E2E_SKIP_BUILD=1 npm run test:e2e    # same, reusing the current .next build
+npm run shots                        # README screenshots (needs a build + seeded database)
 DATABASE_PROVIDER=sqlite npm run build   # self-contained demo build
 ```

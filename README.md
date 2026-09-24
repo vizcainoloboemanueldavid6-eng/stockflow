@@ -232,7 +232,9 @@ npm run test:e2e           # browser: every page and flow, as admin, staff and d
 - **Integration** (`tests/integration`): against the database in `.env`. Two overlapping
   stock-outs on PostgreSQL (the second provably waits for the first one's row lock, then is
   refused); the real delete actions called with a mocked Staff session change nothing, and a
-  session that _claims_ Admin for the Staff account is still refused.
+  session that _claims_ Admin for the Staff account is still refused. The same suite runs in
+  SQLite mode (`DATABASE_PROVIDER=sqlite npm run test:integration` after `npm run db:sqlite`),
+  where writers are serialised and the second stock-out gets the same "not enough stock" error.
 - **End to end** (`tests/e2e`, Playwright): `npm run test:e2e` starts a freshly migrated and
   seeded `stockflow_e2e` database on the embedded PostgreSQL (started if needed; your development
   data is not touched), runs `npm run build`, starts `next start` on :3100 and a second server with
@@ -247,8 +249,9 @@ npm run test:e2e           # browser: every page and flow, as admin, staff and d
 
 E2E options: `E2E_SKIP_BUILD=1` reuses the current build; `E2E_BASE_URL=http://localhost:3000`
 runs against a server you started (then the "closed" project needs `E2E_CLOSED_BASE_URL`);
-`E2E_DATABASE_URL` uses another PostgreSQL database (for example the Docker one). Browsers:
-`npx playwright install chromium` once on a new machine.
+`E2E_DATABASE_URL` uses another PostgreSQL database (for example the Docker one). In SQLite mode
+(`DATABASE_PROVIDER=sqlite` in `.env`) the runner rebuilds and seeds the SQLite file instead.
+Browsers: `npx playwright install chromium` once on a new machine.
 
 ---
 
