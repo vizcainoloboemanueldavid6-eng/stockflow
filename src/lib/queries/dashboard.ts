@@ -6,7 +6,7 @@ import { countByStatus, type DailyFlow, dailyInOut, inventoryValue } from '@/lib
 
 /** Length of the dashboard's trend window and of the "best sellers" window. */
 export const DASHBOARD_WINDOW_DAYS = 30;
-const LOW_STOCK_ROWS = 8;
+const LOW_STOCK_ROWS = 10;
 const TOP_PRODUCTS = 5;
 
 export type LowStockRow = {

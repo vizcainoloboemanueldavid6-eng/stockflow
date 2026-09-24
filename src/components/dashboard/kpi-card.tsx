@@ -30,7 +30,7 @@ export function KpiCard({
         <p className="text-sm font-medium text-muted-foreground">{label}</p>
         <span
           className={cn(
-            'flex size-8 shrink-0 items-center justify-center rounded-md',
+            'hidden size-8 shrink-0 items-center justify-center rounded-md sm:flex',
             tone === 'warning' ? 'bg-warning/10 text-warning' : 'bg-primary/10 text-link',
           )}
           aria-hidden="true"
@@ -38,7 +38,10 @@ export function KpiCard({
           <Icon className="size-4" />
         </span>
       </div>
-      <p className="mt-1 text-3xl font-semibold tracking-tight" data-testid={testId}>
+      <p
+        className="mt-1 truncate text-2xl font-semibold tracking-tight sm:text-3xl"
+        data-testid={testId}
+      >
         {value}
       </p>
       {detail && <p className="mt-1 text-xs text-muted-foreground">{detail}</p>}
@@ -46,7 +49,7 @@ export function KpiCard({
   );
 
   return (
-    <Card className="relative p-5 transition-colors has-[a:hover]:bg-muted/40">
+    <Card className="relative min-w-0 p-4 transition-colors has-[a:hover]:bg-muted/40 sm:p-5">
       {href ? (
         <Link
           href={href}

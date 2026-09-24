@@ -1,5 +1,8 @@
 import Link from 'next/link';
+import { PackagePlus } from 'lucide-react';
 import { StockStatusBadge } from '@/components/inventory/badges';
+import { MovementDialog } from '@/components/inventory/movement-dialog';
+import { Button } from '@/components/ui/button';
 import {
   Table,
   TableBody,
@@ -11,47 +14,84 @@ import {
 import { formatNumber } from '@/lib/format';
 import type { LowStockRow } from '@/lib/queries/dashboard';
 
-/** Dashboard alerts: products at or below their reorder level, emptiest first. */
-export function LowStockTable({ rows }: { rows: LowStockRow[] }) {
+/**
+ * Dashboard alerts: products at or below their reorder level, emptiest first.
+ * With `canRestock`, each row gets a "Restock" button that opens the movement
+ * dialog preset to a stock-in for that product.
+ */
+export function LowStockTable({
+  rows,
+  canRestock = false,
+}: {
+  rows: LowStockRow[];
+  canRestock?: boolean;
+}) {
   return (
     <Table>
       <caption className="sr-only">Products at or below their reorder level</caption>
       <TableHeader>
         <TableRow className="hover:bg-transparent">
           <TableHead>Product</TableHead>
-          <TableHead className="hidden sm:table-cell">SKU</TableHead>
+          <TableHead className="hidden xl:table-cell">SKU</TableHead>
           <TableHead className="text-right">On hand</TableHead>
-          <TableHead className="hidden text-right sm:table-cell">Reorder at</TableHead>
-          <TableHead>Status</TableHead>
-          <TableHead className="hidden lg:table-cell">Supplier</TableHead>
+          <TableHead className="hidden text-right lg:table-cell">Reorder at</TableHead>
+          <TableHead className="hidden sm:table-cell">Status</TableHead>
+          <TableHead className="hidden xl:table-cell">Supplier</TableHead>
+          {canRestock && (
+            <TableHead>
+              <span className="sr-only">Actions</span>
+            </TableHead>
+          )}
         </TableRow>
       </TableHeader>
       <TableBody>
         {rows.map((row) => (
           <TableRow key={row.id}>
-            <TableCell className="max-w-[12rem] sm:max-w-xs">
+            <TableCell className="max-w-[12rem] sm:max-w-[16rem] xl:max-w-xs">
               <Link
                 href={`/products/${row.id}`}
                 className="block truncate font-medium text-link underline-offset-4 hover:underline"
               >
                 {row.name}
               </Link>
+              <StockStatusBadge status={row.status} className="mt-1 sm:hidden" />
             </TableCell>
-            <TableCell className="hidden font-mono text-xs text-muted-foreground sm:table-cell">
+            <TableCell className="hidden font-mono text-xs text-muted-foreground xl:table-cell">
               {row.sku}
             </TableCell>
             <TableCell className="text-right font-medium tabular-nums">
               {formatNumber(row.quantity)}
             </TableCell>
-            <TableCell className="hidden text-right tabular-nums text-muted-foreground sm:table-cell">
+            <TableCell className="hidden text-right tabular-nums text-muted-foreground lg:table-cell">
               {formatNumber(row.reorderLevel)}
             </TableCell>
-            <TableCell>
+            <TableCell className="hidden sm:table-cell">
               <StockStatusBadge status={row.status} />
             </TableCell>
-            <TableCell className="hidden text-muted-foreground lg:table-cell">
+            <TableCell className="hidden text-muted-foreground xl:table-cell">
               {row.supplierName ?? '—'}
             </TableCell>
+            {canRestock && (
+              <TableCell className="w-0 text-right">
+                <MovementDialog
+                  defaultType="IN"
+                  lockProduct
+                  product={{
+                    id: row.id,
+                    sku: row.sku,
+                    name: row.name,
+                    quantity: row.quantity,
+                    reorderLevel: row.reorderLevel,
+                  }}
+                  trigger={
+                    <Button variant="outline" size="sm" aria-label={`Restock ${row.name}`}>
+                      <PackagePlus aria-hidden="true" />
+                      <span className="hidden lg:inline">Restock</span>
+                    </Button>
+                  }
+                />
+              </TableCell>
+            )}
           </TableRow>
         ))}
       </TableBody>
