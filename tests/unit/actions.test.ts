@@ -33,7 +33,7 @@ vi.mock('@/lib/db', () => ({
   prisma: {
     user: { findUnique: mocks.findCurrentUser },
     product: { findUnique: mocks.productLookup },
-    category: { findUnique: mocks.categoryLookup },
+    category: { findMany: mocks.categoryLookup },
     $transaction: mocks.transaction,
   },
 }));
@@ -395,18 +395,25 @@ describe('referential rules with clear messages', () => {
       fieldErrors: { sku: ['Another product already uses this SKU.'] },
     });
 
-    mocks.categoryLookup.mockResolvedValue({ id: 'c-audio' });
+    mocks.categoryLookup.mockResolvedValue([
+      { id: 'c-audio', name: 'Audio' },
+      { id: 'c-cables', name: 'Cables & Adapters' },
+    ]);
+    // Names differ only in case or spaces: still the same name.
+    for (const name of ['Audio', 'audio', 'AUDIO', '  cables & adapters ']) {
+      await expect(catalog.createCategory({ name, color: '#2563EB' })).resolves.toMatchObject({
+        ok: false,
+        code: 'VALIDATION',
+        fieldErrors: { name: [expect.stringMatching(/already/)] },
+      });
+    }
     await expect(
-      catalog.createCategory({ name: 'Audio', color: '#2563EB' }),
-    ).resolves.toMatchObject({
-      ok: false,
-      code: 'VALIDATION',
-      fieldErrors: { name: [expect.stringMatching(/already/)] },
-    });
-    // Renaming a category to its own name is not a conflict.
-    mocks.tx.category.update.mockResolvedValue({ id: 'c-audio', name: 'Audio' });
+      catalog.updateCategory({ id: 'c-cables', name: 'AUDIO', color: '#2563EB' }),
+    ).resolves.toMatchObject({ ok: false, code: 'VALIDATION' });
+    // Renaming a category to its own name, in another case, is not a conflict.
+    mocks.tx.category.update.mockResolvedValue({ id: 'c-audio', name: 'AUDIO' });
     await expect(
-      catalog.updateCategory({ id: 'c-audio', name: 'Audio', color: '#2563EB' }),
+      catalog.updateCategory({ id: 'c-audio', name: 'AUDIO', color: '#2563EB' }),
     ).resolves.toMatchObject({ ok: true });
     expect(mocks.transaction).toHaveBeenCalledTimes(1);
   });
