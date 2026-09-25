@@ -618,6 +618,24 @@ this stage does not deploy). The scripts are plain Node with `path.join` and `pr
 no shell syntax, and the schema already generates the `rhel-openssl-3.0.x` engine Vercel uses (it
 is present in `node_modules/.prisma/client` and in the traced server bundle).
 
+### Review round 1: how the fixes were verified
+
+Three reviews (spec, runtime, code) reported 21 findings; all were real and all were fixed. Each
+fix has a test that fails without it where one could be written (credentials limiter and demo
+switch, permissions, shared accounts, busy mapping, wildcard search, category case, threshold
+toast, aged SQLite copy, 40-request burst), and the whole set was re-run afterwards:
+
+| Check                                                  | Result                                                                       |
+| ------------------------------------------------------ | ---------------------------------------------------------------------------- |
+| `npm run lint`, `npm test`                             | clean, 187/187                                                               |
+| `npm run test:e2e` (PostgreSQL, builds itself)         | 48/48                                                                        |
+| `DATABASE_PROVIDER=sqlite npm run test:e2e`            | 48/48                                                                        |
+| `npm run test:integration` (PostgreSQL / SQLite)       | 24 + 2 SQLite-only skipped / 25 + 1 skip                                     |
+| Long unbroken names at 390 and 1440 px, 9 pages        | no page or table scrolls sideways                                            |
+| Empty database with one admin: products page           | "Create a category" link, no dead end                                        |
+| SQLite build, bundle seeded 40 days earlier, empty tmp | re-seeded on first request: 810 units in the 30-day chart, 9 movements today |
+| SQLite `db:reset-demo` with the server running         | a user added in the app was gone                                             |
+
 ---
 
 ## Architecture
