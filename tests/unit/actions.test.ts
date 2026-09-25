@@ -43,6 +43,7 @@ const catalog = await import('@/lib/actions/catalog');
 const users = await import('@/lib/actions/users');
 const account = await import('@/lib/actions/account');
 const { DEMO_EMAIL_MESSAGE, DEMO_PASSWORD_MESSAGE } = await import('@/lib/constants');
+const { SHARED_ACCOUNT_MESSAGE } = await import('@/lib/permissions');
 
 type Role = 'ADMIN' | 'STAFF' | 'DEMO';
 
@@ -170,6 +171,106 @@ describe('DEMO restrictions', () => {
     expect(mocks.tx.auditLog.create).toHaveBeenCalledWith({
       data: expect.objectContaining({ action: 'product.delete', entityId: 'p1' }),
     });
+  });
+});
+
+describe('shared demo accounts while the public demo is on', () => {
+  const seededAdmin = {
+    id: 'admin-id',
+    name: 'Admin User',
+    email: 'admin@stockflow.test',
+    role: 'ADMIN' as const,
+  };
+  const seededStaff = {
+    id: 'staff-id',
+    name: 'Staff User',
+    email: 'staff@stockflow.test',
+    role: 'STAFF' as const,
+  };
+
+  function signInAsSeeded(user: typeof seededAdmin | typeof seededStaff) {
+    mocks.auth.mockResolvedValue({ user: { id: user.id, role: user.role } });
+    mocks.findCurrentUser.mockResolvedValue(user);
+  }
+
+  const passwordChange = {
+    currentPassword: 'Admin#2026',
+    newPassword: 'Another#2027',
+    confirmPassword: 'Another#2027',
+  };
+
+  it('keep their published password and email, whatever the role', async () => {
+    for (const user of [seededAdmin, seededStaff]) {
+      signInAsSeeded(user);
+      await expect(account.changePassword(passwordChange)).resolves.toEqual({
+        ok: false,
+        code: 'FORBIDDEN',
+        error: DEMO_PASSWORD_MESSAGE,
+      });
+      await expect(
+        account.updateProfile({ name: user.name, email: 'taken-over@x.test' }),
+      ).resolves.toEqual({ ok: false, code: 'FORBIDDEN', error: DEMO_EMAIL_MESSAGE });
+    }
+    expect(mocks.transaction).not.toHaveBeenCalled();
+  });
+
+  it('cannot be deleted, demoted or given a new password, even by an admin', async () => {
+    signInAsSeeded(seededAdmin);
+    mocks.tx.user.findUnique.mockResolvedValue(seededStaff);
+    mocks.tx.user.count.mockResolvedValue(1);
+    for (const call of [
+      () => users.deleteUser({ id: 'staff-id' }),
+      () => users.updateUser({ id: 'staff-id', name: 'Staff User', role: 'DEMO' }),
+    ]) {
+      await expect(call()).resolves.toEqual({
+        ok: false,
+        code: 'FORBIDDEN',
+        error: SHARED_ACCOUNT_MESSAGE,
+      });
+    }
+    mocks.findCurrentUser.mockResolvedValueOnce(seededAdmin).mockResolvedValueOnce(seededStaff);
+    await expect(
+      users.setUserPassword({ id: 'staff-id', password: 'Fresh#2026x' }),
+    ).resolves.toMatchObject({ ok: false, error: SHARED_ACCOUNT_MESSAGE });
+    expect(mocks.tx.user.update).not.toHaveBeenCalled();
+    expect(mocks.tx.user.delete).not.toHaveBeenCalled();
+  });
+
+  it('are ordinary accounts on a real deployment (DEMO_ENABLED=false)', async () => {
+    vi.stubEnv('DEMO_ENABLED', 'false');
+    try {
+      signInAsSeeded(seededAdmin);
+      await expect(account.changePassword(passwordChange)).resolves.toEqual({
+        ok: true,
+        data: null,
+      });
+      mocks.tx.user.findUnique.mockResolvedValue(seededStaff);
+      mocks.tx.user.count.mockResolvedValue(1);
+      await expect(users.deleteUser({ id: 'staff-id' })).resolves.toMatchObject({ ok: true });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('DEMO may rename a staff account but not change its role', async () => {
+    signInAs('DEMO');
+    mocks.tx.user.findUnique.mockResolvedValue({
+      id: 'visitor-staff',
+      name: 'Visitor',
+      email: 'visitor@x.test',
+      role: 'STAFF',
+    });
+    await expect(
+      users.updateUser({ id: 'visitor-staff', name: 'Visitor', role: 'DEMO' }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'FORBIDDEN',
+      error: expect.stringMatching(/cannot change roles/),
+    });
+    mocks.tx.user.update.mockResolvedValue({ id: 'visitor-staff', name: 'Renamed', role: 'STAFF' });
+    await expect(
+      users.updateUser({ id: 'visitor-staff', name: 'Renamed', role: 'STAFF' }),
+    ).resolves.toMatchObject({ ok: true });
   });
 });
 

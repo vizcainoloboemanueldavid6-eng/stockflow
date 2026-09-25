@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { getCurrentUser } from '@/lib/actions/guard';
+import { sharedDemoAccount } from '@/lib/config';
 import { ROLE_LABELS } from '@/lib/constants';
 import { prisma } from '@/lib/db';
 import { can } from '@/lib/permissions';
@@ -36,6 +37,8 @@ export default async function SettingsPage({
       ? requested
       : 'account';
 
+  // A seeded account while the public demo is on: its sign-in details stay as published.
+  const shared = sharedDemoAccount(user.email);
   const [users, adminCount] = canViewUsers
     ? await Promise.all([listUsers(), prisma.user.count({ where: { role: 'ADMIN' } })])
     : [[], 0];
@@ -84,7 +87,7 @@ export default async function SettingsPage({
               <ProfileForm
                 name={user.name}
                 email={user.email}
-                canChangeEmail={can(user.role, 'profile:change-email')}
+                canChangeEmail={can(user.role, 'profile:change-email') && !shared}
               />
             </CardContent>
           </Card>
@@ -97,7 +100,7 @@ export default async function SettingsPage({
               <CardDescription>Enter your current password to choose a new one.</CardDescription>
             </CardHeader>
             <CardContent>
-              <PasswordForm allowed={can(user.role, 'password:change')} />
+              <PasswordForm allowed={can(user.role, 'password:change') && !shared} />
             </CardContent>
           </Card>
         </TabsContent>

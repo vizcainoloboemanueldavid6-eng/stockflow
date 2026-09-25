@@ -1,8 +1,10 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
+import type { Prisma } from '@prisma/client';
 import { hashPassword } from '@/lib/auth';
 import { audit } from '@/lib/audit';
+import { sharedDemoAccount } from '@/lib/config';
 import { prisma } from '@/lib/db';
 import { ForbiddenError, NotFoundError } from '@/lib/errors';
 import { userChangeRefusal } from '@/lib/permissions';
@@ -14,8 +16,19 @@ import { createAction } from './guard';
 /*
  * User management (Settings -> Users). The matrix gives it to ADMIN, and to DEMO
  * without deletes; userChangeRefusal() adds the relational rules: nobody deletes or
- * demotes themselves, the last admin stays, and DEMO only manages STAFF accounts.
+ * demotes themselves, the last admin stays, DEMO only renames STAFF accounts, and the
+ * shared demo accounts keep their role and password while the public demo is on.
  */
+
+/** The account an action targets, flagged when it is one of the locked shared demo accounts. */
+async function findTarget(db: Pick<Prisma.TransactionClient, 'user'>, id: string) {
+  const target = await db.user.findUnique({
+    where: { id },
+    select: { id: true, name: true, email: true, role: true },
+  });
+  if (!target) throw new NotFoundError('This user no longer exists.');
+  return { ...target, shared: sharedDemoAccount(target.email) };
+}
 
 function revalidateUsers() {
   revalidatePath('/settings');
@@ -53,8 +66,7 @@ export const updateUser = createAction(
   { permission: 'user:update', schema: userUpdateSchema },
   async ({ id, name, role }, { user }) => {
     const updated = await prisma.$transaction(async (tx) => {
-      const target = await tx.user.findUnique({ where: { id }, select: { id: true, role: true } });
-      if (!target) throw new NotFoundError('This user no longer exists.');
+      const target = await findTarget(tx, id);
       const roleChanges = role !== target.role;
       const adminCount = roleChanges
         ? await tx.user.count({ where: { role: 'ADMIN' } })
@@ -95,11 +107,7 @@ export const setUserPassword = createAction(
     deniedMessage: 'Only administrators can reset passwords.',
   },
   async ({ id, password }, { user }) => {
-    const target = await prisma.user.findUnique({
-      where: { id },
-      select: { id: true, name: true, role: true },
-    });
-    if (!target) throw new NotFoundError('This user no longer exists.');
+    const target = await findTarget(prisma, id);
     const refusal = userChangeRefusal(user, target, 'set-password');
     if (refusal) throw new ForbiddenError(refusal);
 
@@ -126,11 +134,7 @@ export const deleteUser = createAction(
   },
   async ({ id }, { user }) => {
     const deleted = await prisma.$transaction(async (tx) => {
-      const target = await tx.user.findUnique({
-        where: { id },
-        select: { id: true, name: true, role: true },
-      });
-      if (!target) throw new NotFoundError('This user no longer exists.');
+      const target = await findTarget(tx, id);
       const adminCount = await tx.user.count({ where: { role: 'ADMIN' } });
       const refusal = userChangeRefusal(user, target, 'delete', { adminCount });
       if (refusal) throw new ForbiddenError(refusal);

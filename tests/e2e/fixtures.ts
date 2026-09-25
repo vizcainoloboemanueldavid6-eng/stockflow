@@ -62,6 +62,25 @@ export async function signIn(page: Page, account: AccountKey) {
   await page.waitForURL('**/dashboard');
 }
 
+/**
+ * Registers a fresh Staff account through /register (which signs it in) and returns
+ * its credentials. The seeded accounts are locked while the demo is on (no password or
+ * email changes), so tests that need an ordinary account use one of these. Keep the
+ * number of calls per run low: registration is limited to 5 attempts per client an hour.
+ */
+export async function registerStaff(page: Page, name = 'Registered Staff') {
+  const email = `staff.${unique().toLowerCase()}@example.test`;
+  const password = 'Welcome2026';
+  await page.goto('/register');
+  await page.getByLabel('Full name').fill(name);
+  await page.getByLabel('Work email').fill(email);
+  await page.getByLabel('Password', { exact: true }).fill(password);
+  await page.getByLabel('Confirm password').fill(password);
+  await page.getByRole('button', { name: 'Create account' }).click();
+  await page.waitForURL('**/dashboard');
+  return { email, password };
+}
+
 /** A short unique suffix for records a test creates. */
 export const unique = () =>
   `${Date.now().toString(36)}${Math.floor(Math.random() * 1e4)}`.toUpperCase();

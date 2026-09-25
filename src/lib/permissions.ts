@@ -82,9 +82,18 @@ export function permissionsFor(role: Role): Permission[] {
   return PERMISSIONS.filter((permission) => MATRIX[role].has(permission));
 }
 
-type UserRef = { id: string; role: Role };
+/**
+ * `shared`: one of the three seeded accounts while the public demo is on (computed on
+ * the server by sharedDemoAccount() in src/lib/config.ts). Their credentials are
+ * published, so they are locked for everyone.
+ */
+type UserRef = { id: string; role: Role; shared?: boolean };
 
 export type UserChange = 'update' | 'role' | 'set-password' | 'delete';
+
+/** Why a shared demo account cannot be changed (Settings -> Users and the server). */
+export const SHARED_ACCOUNT_MESSAGE =
+  'A shared demo account: its role, password and email stay as published, so every visitor can use it.';
 
 /**
  * Rules for acting on *another* user that a flat matrix cannot express.
@@ -93,8 +102,11 @@ export type UserChange = 'update' | 'role' | 'set-password' | 'delete';
  *
  * - Nobody deletes themselves or changes their own role (no accidental lock-out), and
  *   nobody resets their own password here (that path skips the current-password check).
- * - DEMO may manage STAFF accounts it can see, but not ADMIN accounts, not other
- *   DEMO accounts, and it may not grant ADMIN.
+ * - A shared demo account keeps its role and password and cannot be deleted, whoever
+ *   asks (renaming it is harmless and allowed).
+ * - DEMO may rename STAFF accounts, but not touch ADMIN or other DEMO accounts, and it
+ *   cannot change anyone's role: turning a Staff account into a Demo one would take it
+ *   out of DEMO's own reach, and the published Staff login would stop showing Staff.
  * - The last remaining ADMIN can be neither demoted nor deleted.
  */
 export function userChangeRefusal(
@@ -118,12 +130,14 @@ export function userChangeRefusal(
     return 'Change your own password in the Password section, which asks for the current one.';
   }
 
+  if (target.shared && change !== 'update') return SHARED_ACCOUNT_MESSAGE;
+
   if (actor.role === 'DEMO') {
     if (target.role !== 'STAFF' && !self) {
       return 'The demo account can only manage staff accounts.';
     }
-    if (change === 'role' && options.newRole === 'ADMIN') {
-      return 'The demo account cannot grant the admin role.';
+    if (change === 'role' && options.newRole !== 'STAFF') {
+      return 'The demo account cannot change roles; staff accounts stay staff.';
     }
   }
 

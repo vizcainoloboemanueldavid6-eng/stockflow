@@ -1,4 +1,5 @@
 import 'server-only';
+import { sharedDemoAccount } from '@/lib/config';
 import { appTimeZone } from '@/lib/dates';
 import { prisma, toNumber } from '@/lib/db';
 import { formatDate } from '@/lib/format';
@@ -89,6 +90,8 @@ export type UserRow = {
   role: 'ADMIN' | 'STAFF' | 'DEMO';
   createdLabel: string;
   movementCount: number;
+  /** A seeded account while the public demo is on: role, password and email are locked. */
+  shared: boolean;
 };
 
 export async function listUsers(): Promise<UserRow[]> {
@@ -111,5 +114,6 @@ export async function listUsers(): Promise<UserRow[]> {
     role: user.role,
     createdLabel: formatDate(user.createdAt, timeZone),
     movementCount: user._count.movements,
+    shared: sharedDemoAccount(user.email),
   }));
 }

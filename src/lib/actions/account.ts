@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { hashPassword, verifyPassword } from '@/lib/auth';
 import { audit } from '@/lib/audit';
+import { sharedDemoAccount } from '@/lib/config';
 import { DEMO_EMAIL_MESSAGE, DEMO_PASSWORD_MESSAGE } from '@/lib/constants';
 import { prisma } from '@/lib/db';
 import { ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors';
@@ -13,14 +14,19 @@ import { createAction } from './guard';
 
 /*
  * The signed-in user's own account (Settings -> Profile / Password).
- * The shared DEMO account may rename itself but not change its email or password:
- * either would lock every other visitor out of "Try the demo" until the next reset.
+ * The DEMO role, and every shared demo account while the public demo is on (the three
+ * seeded accounts, whose credentials are published), may rename themselves but not
+ * change their email or password: either would lock every other visitor out of that
+ * login until the next reset.
  */
 
 export const updateProfile = createAction(
   { permission: 'profile:update', schema: profileSchema },
   async ({ name, email }, { user }) => {
-    if (email !== user.email && !can(user.role, 'profile:change-email')) {
+    if (
+      email !== user.email &&
+      (!can(user.role, 'profile:change-email') || sharedDemoAccount(user.email))
+    ) {
       throw new ForbiddenError(DEMO_EMAIL_MESSAGE);
     }
     if (email !== user.email) await assertUnique('userEmail', email, user.id);
@@ -50,6 +56,7 @@ export const changePassword = createAction(
     deniedMessage: DEMO_PASSWORD_MESSAGE,
   },
   async ({ currentPassword, newPassword }, { user }) => {
+    if (sharedDemoAccount(user.email)) throw new ForbiddenError(DEMO_PASSWORD_MESSAGE);
     const row = await prisma.user.findUnique({
       where: { id: user.id },
       select: { passwordHash: true },

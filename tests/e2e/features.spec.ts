@@ -499,6 +499,21 @@ test.describe('as admin', () => {
     await rowActions(page, 'Admin User');
     await expect(page.getByRole('menuitem', { name: /Delete user/ })).toBeDisabled();
     await expect(page.getByRole('menuitem', { name: /Set a new password/ })).toBeDisabled();
+    await page.keyboard.press('Escape');
+
+    // The seeded Staff account is shared while the demo is on: an admin may rename it,
+    // but not delete it, reset its password or change its role.
+    await rowActions(page, 'Staff User');
+    await expect(page.getByRole('menuitem', { name: /Delete user/ })).toBeDisabled();
+    await expect(page.getByRole('menuitem', { name: /Delete user/ })).toContainText(
+      'shared demo account',
+    );
+    await expect(page.getByRole('menuitem', { name: /Set a new password/ })).toBeDisabled();
+    await page.getByRole('menuitem', { name: 'Edit name and role' }).click();
+    const shared = page.getByRole('dialog', { name: 'Edit Staff User' });
+    await expect(shared.getByLabel('Role')).toBeDisabled();
+    await expect(shared).toContainText('shared demo account');
+    await shared.getByRole('button', { name: 'Cancel' }).click();
   });
 });
 
@@ -527,7 +542,10 @@ test.describe('as staff', () => {
   test('has no Users tab and may export reports', async ({ page }) => {
     await page.goto('/settings?tab=users');
     await expect(page.getByRole('tab', { name: 'Users' })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Change password' })).toBeEnabled();
+    // The seeded Staff login is published, so it is shared and its password is locked;
+    // an ordinary Staff account can change its own (auth.spec.ts, registration test).
+    await expect(page.getByTestId('demo-password-notice')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Change password' })).toBeDisabled();
     const csv = await page.request.get('/api/export/movements');
     expect(csv.status()).toBe(200);
   });

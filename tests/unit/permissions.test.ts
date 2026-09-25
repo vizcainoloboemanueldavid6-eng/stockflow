@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { ROLES } from '@/lib/constants';
-import { can, PERMISSIONS, permissionsFor, userChangeRefusal } from '@/lib/permissions';
+import {
+  can,
+  PERMISSIONS,
+  permissionsFor,
+  SHARED_ACCOUNT_MESSAGE,
+  userChangeRefusal,
+} from '@/lib/permissions';
 
 const DELETE_PERMISSIONS = PERMISSIONS.filter((p) => p.endsWith(':delete'));
 const USER_MANAGEMENT = PERMISSIONS.filter((p) => p.startsWith('user:'));
@@ -120,13 +126,37 @@ describe('userChangeRefusal', () => {
     expect(userChangeRefusal(admin, otherAdmin, 'delete', { adminCount: 2 })).toBeNull();
   });
 
-  it('limits DEMO to staff accounts and never to deletes or passwords', () => {
+  it('limits DEMO to renaming staff accounts: no roles, deletes or passwords', () => {
     expect(userChangeRefusal(demo, staff, 'update')).toBeNull();
-    expect(userChangeRefusal(demo, staff, 'role', { newRole: 'DEMO' })).toBeNull();
-    expect(userChangeRefusal(demo, staff, 'role', { newRole: 'ADMIN' })).toMatch(/admin role/);
+    // Turning Staff into Demo would put the account out of DEMO's reach and change what
+    // the published Staff login shows, so DEMO changes no roles at all.
+    expect(userChangeRefusal(demo, staff, 'role', { newRole: 'DEMO' })).toMatch(
+      /cannot change roles/,
+    );
+    expect(userChangeRefusal(demo, staff, 'role', { newRole: 'ADMIN' })).toMatch(
+      /cannot change roles/,
+    );
     expect(userChangeRefusal(demo, admin, 'update')).toMatch(/only manage staff/);
     expect(userChangeRefusal(demo, staff, 'delete')).toMatch(/permission/);
     expect(userChangeRefusal(demo, staff, 'set-password')).toMatch(/permission/);
+  });
+
+  it('locks the shared demo accounts for everyone, admins included (renaming is fine)', () => {
+    const sharedStaff = { ...staff, shared: true };
+    const sharedDemo = { id: 'd2', role: 'DEMO' as const, shared: true };
+    expect(userChangeRefusal(admin, sharedStaff, 'update')).toBeNull();
+    for (const target of [sharedStaff, sharedDemo, { ...otherAdmin, shared: true }]) {
+      expect(userChangeRefusal(admin, target, 'role', { newRole: 'STAFF', adminCount: 2 })).toBe(
+        SHARED_ACCOUNT_MESSAGE,
+      );
+      expect(userChangeRefusal(admin, target, 'set-password')).toBe(SHARED_ACCOUNT_MESSAGE);
+      expect(userChangeRefusal(admin, target, 'delete', { adminCount: 2 })).toBe(
+        SHARED_ACCOUNT_MESSAGE,
+      );
+    }
+    expect(userChangeRefusal(demo, sharedStaff, 'role', { newRole: 'DEMO' })).toBe(
+      SHARED_ACCOUNT_MESSAGE,
+    );
   });
 
   it('refuses everything to STAFF', () => {

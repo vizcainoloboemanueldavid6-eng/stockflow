@@ -62,11 +62,14 @@ export const CATEGORY_COLORS = [
   '#64748B',
 ] as const;
 
-/** Why the shared demo account cannot change its sign-in details (shown in Settings and by the server). */
+/**
+ * Why a shared demo account (the DEMO role, or any seeded account while the public demo
+ * is on) cannot change its sign-in details. Shown in Settings and returned by the server.
+ */
 export const DEMO_PASSWORD_MESSAGE =
-  "The shared demo account's password can't be changed, so every visitor can keep signing in with it.";
+  "This shared demo account's password can't be changed, so every visitor can keep signing in with it.";
 export const DEMO_EMAIL_MESSAGE =
-  "The shared demo account's email can't be changed, so every visitor can keep signing in with it.";
+  "This shared demo account's email can't be changed, so every visitor can keep signing in with it.";
 
 /** Password rules shared by register, change-password and user management. */
 export const PASSWORD_MIN_LENGTH = 8;

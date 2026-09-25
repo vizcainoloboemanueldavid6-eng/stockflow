@@ -3,6 +3,7 @@ import {
   createProduct,
   expect,
   recordServerAction,
+  registerStaff,
   replayServerAction,
   rowActions,
   signIn,
@@ -136,11 +137,12 @@ test('DEMO cannot change its password: disabled in the UI and refused by the ser
   browser,
 }) => {
   // Record the change-password action from a STAFF session. The current password is
-  // wrong on purpose, so the recording changes nothing.
+  // wrong on purpose, so the recording changes nothing. A freshly registered account:
+  // the seeded Staff account is itself locked while the demo is on (next test).
   const staffContext = await browser.newContext();
   const staff = await staffContext.newPage();
   const staffErrors = trackConsoleErrors(staff);
-  await signIn(staff, 'staff');
+  await registerStaff(staff, 'Password Recorder');
   await staff.goto('/settings');
   const changePassword = await recordServerAction(staff, async () => {
     await staff.getByLabel('Current password').fill('not-my-password');
@@ -171,7 +173,24 @@ test('DEMO cannot change its password: disabled in the UI and refused by the ser
   const fresh = await browser.newContext();
   const check = await fresh.newPage();
   await signIn(check, 'demo');
+
+  // The seeded Staff and Admin accounts are shared too: the same request with their real
+  // current password is refused, so no visitor can lock the published logins.
+  for (const key of ['staff', 'admin'] as const) {
+    await check.context().clearCookies();
+    await signIn(check, key);
+    await check.goto('/settings');
+    await expect(check.getByTestId('demo-password-notice')).toBeVisible();
+    await expect(check.getByRole('button', { name: 'Change password' })).toBeDisabled();
+    const replay = changePassword.body.replace('not-my-password', ACCOUNTS[key].password);
+    const locked = await replayServerAction(check, changePassword, { body: replay });
+    expect(locked.text).toContain('"code":"FORBIDDEN"');
+  }
   await fresh.close();
+  // ...and both still sign in with the published passwords.
+  const again = await browser.newContext();
+  await signIn(await again.newPage(), 'staff');
+  await again.close();
 
   expect(staffErrors, 'staff console errors').toEqual([]);
   await staffContext.close();

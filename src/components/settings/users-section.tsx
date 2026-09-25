@@ -59,7 +59,7 @@ import { createUser, deleteUser, setUserPassword, updateUser } from '@/lib/actio
 import { PASSWORD_MIN_LENGTH, ROLE_LABELS, ROLES, type Role } from '@/lib/constants';
 import { applyFieldErrors } from '@/lib/forms';
 import { formatNumber } from '@/lib/format';
-import { userChangeRefusal } from '@/lib/permissions';
+import { SHARED_ACCOUNT_MESSAGE, userChangeRefusal } from '@/lib/permissions';
 import type { UserRow } from '@/lib/queries/catalog';
 import { passwordSchema } from '@/lib/validations/common';
 import {
@@ -87,12 +87,12 @@ const ROLE_VARIANT: Record<Role, 'info' | 'secondary' | 'outline'> = {
 const ROLE_HINTS: Record<Role, string> = {
   ADMIN: 'Everything, including users and deletes.',
   STAFF: 'Products and movements; no deletes, no user management.',
-  DEMO: 'Like an admin, but cannot change passwords or delete users.',
+  DEMO: 'Like an admin, but cannot change passwords or roles, or delete users.',
 };
 
-/** Roles the actor may assign when editing: DEMO never grants ADMIN (server: userChangeRefusal). */
+/** Roles the actor may assign when editing: DEMO changes no roles (server: userChangeRefusal). */
 function assignableRoles(actor: Actor): Role[] {
-  return actor.role === 'DEMO' ? ROLES.filter((role) => role !== 'ADMIN') : [...ROLES];
+  return actor.role === 'DEMO' ? ['STAFF'] : [...ROLES];
 }
 
 /** Roles for a new account: DEMO only creates STAFF accounts (server: createUser). */
@@ -198,8 +198,8 @@ export function UsersSection({
         <Alert variant="info">
           <Info aria-hidden="true" />
           <AlertDescription>
-            The demo account can view users and add or edit staff accounts, but it cannot delete
-            users or reset passwords.
+            The demo account can view users, add staff accounts and rename them. It cannot delete
+            users, reset passwords or change roles.
           </AlertDescription>
         </Alert>
       )}
@@ -538,6 +538,12 @@ function EditUserForm({
   const [pending, setPending] = React.useState(false);
   const self = user.id === actor.id;
   const roles = assignableRoles(actor);
+  // Why the role cannot change at all: your own account, or a shared demo account.
+  const roleLocked = self
+    ? 'You cannot change your own role.'
+    : user.shared
+      ? SHARED_ACCOUNT_MESSAGE
+      : null;
   const form = useForm<UserUpdateInput>({
     resolver: zodResolver(userUpdateSchema),
     defaultValues: { id: user.id, name: user.name, role: user.role },
@@ -596,12 +602,10 @@ function EditUserForm({
                   onChange={field.onChange}
                   onBlur={field.onBlur}
                   roles={roles.includes(user.role) ? roles : [user.role, ...roles]}
-                  disabled={self}
+                  disabled={Boolean(roleLocked)}
                 />
               </FormControl>
-              <FormDescription>
-                {self ? 'You cannot change your own role.' : ROLE_HINTS[field.value]}
-              </FormDescription>
+              <FormDescription>{roleLocked ?? ROLE_HINTS[field.value]}</FormDescription>
               {roleRefusal && (
                 <p className="text-xs font-medium text-destructive dark:text-red-400" role="alert">
                   {roleRefusal}

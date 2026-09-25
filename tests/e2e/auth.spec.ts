@@ -72,6 +72,13 @@ test.describe('authentication', () => {
     await page.waitForURL('**/dashboard');
     await page.getByTestId('user-menu').click();
     await expect(page.getByRole('menu')).toContainText('Staff');
+    await page.keyboard.press('Escape');
+
+    // An ordinary account (unlike the shared seeded ones) manages its own password.
+    await page.goto('/settings');
+    await expect(page.getByTestId('demo-password-notice')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Change password' })).toBeEnabled();
+    await expect(page.getByLabel('Email')).not.toHaveAttribute('readonly', '');
   });
 });
 
