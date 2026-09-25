@@ -131,7 +131,7 @@ export const SEED_PRODUCTS: SeedCatalogProduct[] = [
   // Phone & Tablet Accessories
   { category: 'phone', supplier: 'coastal', name: 'Tempered Glass Screen Protector 6.1"', description: '9H tempered glass with installation frame. Pack of two.', unitCost: 0.7, salePrice: 9.99, popularity: 10, maxPerSale: 5 },
   { category: 'phone', supplier: 'coastal', name: 'Clear Shockproof Phone Case 6.1"', description: 'Slim clear case with reinforced corners that resists yellowing.', unitCost: 1.8, salePrice: 14.99, popularity: 8, maxPerSale: 4 },
-  { category: 'phone', supplier: 'coastal', name: 'Rugged Armor Phone Case 6.7"', description: 'Dual-layer protective case with a built-in kickstand.', unitCost: 3.4, salePrice: 19.99, popularity: 5, maxPerSale: 3 },
+  { category: 'phone', supplier: 'coastal', name: 'Heavy-Duty Kickstand Phone Case 6.7"', description: 'Dual-layer protective case with a built-in kickstand.', unitCost: 3.4, salePrice: 19.99, popularity: 5, maxPerSale: 3 },
   { category: 'phone', supplier: 'pinecrest', name: 'Magnetic Car Phone Mount', description: 'Air-vent mount with strong magnets and 360-degree rotation.', unitCost: 4.2, salePrice: 16.99, popularity: 5, maxPerSale: 3 },
   { category: 'phone', supplier: 'pinecrest', name: 'Adjustable Aluminium Phone Stand', description: 'Desk stand for phones and small tablets with adjustable angle.', unitCost: 3.1, salePrice: 12.99, popularity: 4, maxPerSale: 3 },
   { category: 'phone', supplier: 'coastal', name: 'Tablet Sleeve 11"', description: 'Padded sleeve with a front pocket for a charger and a stylus.', unitCost: 5.6, salePrice: 19.99, popularity: 2, maxPerSale: 2 },
