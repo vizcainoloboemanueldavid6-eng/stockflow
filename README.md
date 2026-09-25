@@ -265,7 +265,9 @@ npm run test:e2e           # browser: every page and flow, as admin, staff and d
   registration (open and closed), dashboard charts, products, movements (including the
   negative-stock error), suppliers, categories, CSV downloads checked row by row against the tables,
   theme, Ctrl+K, settings, 390 px layouts, zero console errors on every page for every role in both
-  themes, and **direct server-action calls**: the request an admin's browser sends to delete a
+  themes, every interactive flow on a page **translated the way Chrome's Google Translate does it**
+  (re-translated after each step, at 390 and 1440 px: no crash, correct updated content - see
+  DECISIONS.md "Browser translation"), and **direct server-action calls**: the request an admin's browser sends to delete a
   product or a category is replayed with the Staff session cookie and must be refused (with the
   admin replay as the positive control); the same for Demo changing its password and for
   registration or the demo login on the closed server, where the published demo credentials must

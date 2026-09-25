@@ -636,6 +636,82 @@ toast, aged SQLite copy, 40-request burst), and the whole set was re-run afterwa
 | SQLite build, bundle seeded 40 days earlier, empty tmp | re-seeded on first request: 810 units in the 30-day chart, 9 movements today |
 | SQLite `db:reset-demo` with the server running         | a user added in the app was gone                                             |
 
+### Browser translation (Chrome / Google Translate)
+
+**Problem.** Visitors whose Chrome translates the page automatically (reported on a sibling site
+by users in Colombia, Chrome on Android) crash React apps: Translate moves every text node into
+`<font><font>…</font></font>` wrappers and also translates new text. React keeps pointing at the
+original text nodes, so when it later removes one, or inserts a node in front of one, the DOM
+throws `NotFoundError` and the page is replaced by the error screen; when it only edits one, the
+change never reaches the screen (React issue #11538). On the live demo, a translated login page
+went to "Something went wrong" as soon as "Try the demo" was clicked: the spinner icon is
+inserted in front of the button label.
+
+**Fix at the source** (`src/lib/safe-text.tsx`): text that can change while its component stays
+mounted lives in its own element, keyed by the text, so React swaps whole elements (which
+Translate then translates) instead of touching text nodes.
+
+- `Button` wraps its bare text children (`wrapText`), which covers every "spinner + label" and
+  every label that changes (`Record stock in` / `Record stock out`, now one string so it is also
+  translated as one sentence); `FormMessage`, Radix `SelectValue`/`SelectItem` (Radix copies the
+  chosen item's text into the trigger and swaps it on every change), KPI tiles, page headers and
+  the product detail page do the same.
+- `Swap` (a keyed span) for the pagination summary, command palette and product picker "no
+  results" lines, the product picker trigger, archive/restore labels, sign-out label, sidebar
+  tooltip, users count, role hints and refusals, chart tooltips and legends, error alerts.
+- The movement dialog's stock preview is one element keyed by product, quantity and result, so
+  the "will be refused" warning appears and disappears correctly on a translated page.
+- Badges are keyed by status/type (a status change used to swap the icon in front of a
+  translated label); category and user names are keyed.
+- `DataTable` calls column `cell`/`header` functions directly instead of TanStack's
+  `flexRender`: `flexRender` mounts them as components, and the column functions are re-created
+  on every `router.refresh()`, so React unmounted every cell and removed the bare price text nodes
+  ("$5.99") - found by the new test. Cells are keyed by the row's data (`JSON.stringify` of the
+  row), so a changed row gets new cells; action cells (`meta.stateful`) keep their menus and
+  dialogs. Column functions must stay plain render functions (no hooks).
+
+**Safety net** (`src/lib/dom-guard.ts`, inlined first in `<head>`, before hydration): the known
+guard from the React issue - `removeChild` of a node that is not a child returns without
+throwing, `insertBefore` with a foreign reference node appends instead. Both situations cannot
+happen in an untouched DOM, so normal use never reaches them; every hit is counted in
+`window.__domGuardHits`, described in `window.__domGuardLog` and reported with `console.warn`, so
+nothing is silently masked. The translation test requires the counter to stay at **0**: the
+source-level changes alone keep the pages working, and the guard only covers what a future change
+or a third-party component might slip in (it keeps the page alive; the stale text it would leave
+is what the test catches).
+
+**Regression test** (`tests/e2e/translation.spec.ts`, part of `npm run test:e2e`, desktop
+project, run at 390 px and 1440 px): signs in with "Try the demo" on a translated login page and
+re-translates after every interaction - theme menu, sidebar collapse or phone drawer, Ctrl+K
+(results, empty state, navigation), account menu, products table (pagination, search, filters,
+clear, sort both ways, page size, row menu), product dialog (validation errors, duplicate SKU,
+category select, create, edit, archive, restore, delete), movement dialog (type switch, picker,
+stock preview, refused overdraw toast, adjustment direction, stock in, history filter), product
+detail figures after a movement, categories and suppliers (validation, live preview, create,
+delete), reports selects and settings tabs, theme picker and add-user validation. After each
+step: no page error or console error (fixture), no error screen, guard counter 0, and the new
+content is on screen ("Showing 11–20", the chosen filter in the trigger, "+2" on hand...).
+
+The simulated translation waits for `networkidle` first. Translating while React is still
+hydrating made React report a hydration mismatch (minified error #418, a recoverable error: React
+re-renders that part on the client) in one early run; Translate itself starts after the page has
+loaded, and that timing is not what this test is about.
+
+How it was verified (2026-09-25):
+
+| Check                                                                    | Result                                                                                       |
+| ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------- |
+| Live demo (old build), translated login page, "Try the demo"             | "Something went wrong" (reproduced)                                                          |
+| New `translation.spec.ts` against the live demo (old build), 390 px      | fails: `NotFoundError: Failed to execute 'insertBefore' on 'Node'` at "Try the demo"         |
+| Same script against a local production build (PostgreSQL) with the fixes | dashboard, products and paging work, 0 page errors                                           |
+| First runs of the new spec on the fixed build                            | found the price cells (`flexRender` remounts) and a split button label; both fixed at source |
+| `npm run lint`, `npm run typecheck`, `npm test`                          | clean, clean, 187/187                                                                        |
+| `npm run test:integration` (embedded PostgreSQL)                         | 24 passed + 2 SQLite-only skipped                                                            |
+| `npm run test:e2e` (builds itself; ports 3120-3122 for this run)         | 62/62 (48 existing + 14 translation tests)                                                   |
+
+Not run for this change: the SQLite-mode e2e suite and a deployment (the live demo still runs
+the old build until it is redeployed).
+
 ---
 
 ## Architecture
