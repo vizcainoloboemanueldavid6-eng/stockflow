@@ -19,6 +19,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { login, loginAsDemo } from '@/lib/actions/auth';
 import { applyFieldErrors } from '@/lib/forms';
+import { Swap } from '@/lib/safe-text';
 import { type LoginInput, loginSchema } from '@/lib/validations/auth';
 
 export function LoginForm({
@@ -119,7 +120,9 @@ export function LoginForm({
       {error && (
         <Alert variant="destructive" aria-live="polite">
           <CircleAlert aria-hidden="true" />
-          <AlertDescription>{error}</AlertDescription>
+          <AlertDescription>
+            <Swap>{error}</Swap>
+          </AlertDescription>
         </Alert>
       )}
 

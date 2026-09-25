@@ -17,6 +17,7 @@ import { useProductSearch } from '@/hooks/use-product-search';
 import { type Role, stockStatus } from '@/lib/constants';
 import { ALL_NAV_ITEMS } from '@/lib/navigation';
 import { can } from '@/lib/permissions';
+import { Swap } from '@/lib/safe-text';
 import { cn } from '@/lib/utils';
 
 function matches(query: string, ...fields: (string | undefined)[]) {
@@ -84,7 +85,9 @@ export function CommandPalette({
       <CommandList>
         {nothing && (
           <CommandEmpty>
-            {failed ? 'Search is unavailable right now.' : `No results for "${query.trim()}".`}
+            <Swap>
+              {failed ? 'Search is unavailable right now.' : `No results for "${query.trim()}".`}
+            </Swap>
           </CommandEmpty>
         )}
 
@@ -114,7 +117,7 @@ export function CommandPalette({
                       status === 'out_of_stock' && 'text-destructive dark:text-red-400',
                     )}
                   >
-                    {product.quantity} in stock
+                    <Swap>{`${product.quantity} in stock`}</Swap>
                   </span>
                 </CommandItem>
               );

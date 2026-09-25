@@ -14,6 +14,7 @@ import { formatCurrency, formatNumber, formatPercent, formatSigned } from '@/lib
 import { can } from '@/lib/permissions';
 import { listMovements } from '@/lib/queries/movements';
 import { getProduct, productFormOptions, productMovementTotals } from '@/lib/queries/products';
+import { wrapText } from '@/lib/safe-text';
 import { parseSearchParams, type RawSearchParams } from '@/lib/search-params';
 import { cn } from '@/lib/utils';
 import { movementListQuerySchema } from '@/lib/validations/movement';
@@ -66,11 +67,15 @@ export default async function ProductDetailPage({ params, searchParams }: Props)
 
       <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div className="min-w-0 space-y-2">
+          {/* Text that a movement or an edit changes is keyed (wrapText / keyed elements) so
+              router.refresh() replaces it even on a translated page (src/lib/safe-text.tsx). */}
           <h1 className="text-2xl font-semibold tracking-tight [overflow-wrap:anywhere]">
-            {product.name}
+            {wrapText(product.name)}
           </h1>
           <div className="flex flex-wrap items-center gap-2 text-sm">
-            <span className="font-mono text-muted-foreground">{product.sku}</span>
+            <span key={product.sku} className="font-mono text-muted-foreground">
+              {product.sku}
+            </span>
             <StockStatusBadge status={product.status} />
             {product.archived && <Badge variant="outline">Archived</Badge>}
           </div>
@@ -144,19 +149,21 @@ export default async function ProductDetailPage({ params, searchParams }: Props)
                     href={`/products?supplier=${product.supplierId}`}
                     className="underline-offset-4 hover:underline"
                   >
-                    {product.supplierName}
+                    {wrapText(product.supplierName)}
                   </Link>
                 ) : (
                   <span className="text-muted-foreground">No supplier</span>
                 )}
               </dd>
               <dt className="text-muted-foreground">Created</dt>
-              <dd>{product.createdLabel}</dd>
+              <dd>{wrapText(product.createdLabel)}</dd>
               <dt className="text-muted-foreground">Last updated</dt>
-              <dd>{product.updatedLabel}</dd>
+              <dd>{wrapText(product.updatedLabel)}</dd>
               <dt className="text-muted-foreground">Description</dt>
               <dd className="whitespace-pre-line">
-                {product.description ?? <span className="text-muted-foreground">None</span>}
+                {wrapText(product.description) ?? (
+                  <span className="text-muted-foreground">None</span>
+                )}
               </dd>
             </dl>
             {product.imageUrl && (
@@ -239,9 +246,9 @@ function Stat({
           tone === 'warning' && 'text-warning',
         )}
       >
-        {value}
+        {wrapText(value)}
       </p>
-      <p className="mt-1 text-xs text-muted-foreground">{detail}</p>
+      <p className="mt-1 text-xs text-muted-foreground">{wrapText(detail)}</p>
     </Card>
   );
 }

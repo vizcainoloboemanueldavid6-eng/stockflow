@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import type { LucideIcon } from 'lucide-react';
 import { Card } from '@/components/ui/card';
+import { wrapText } from '@/lib/safe-text';
 import { cn } from '@/lib/utils';
 
 /**
@@ -38,13 +39,16 @@ export function KpiCard({
           <Icon className="size-4" />
         </span>
       </div>
+      {/* Values and details are keyed text (src/lib/safe-text.tsx): after a refresh the new
+          figures replace the old ones even on a page the browser has translated. */}
       <p
+        key={value}
         className="mt-1 truncate text-2xl font-semibold tracking-tight sm:text-3xl"
         data-testid={testId}
       >
         {value}
       </p>
-      {detail && <p className="mt-1 text-xs text-muted-foreground">{detail}</p>}
+      {detail && <p className="mt-1 text-xs text-muted-foreground">{wrapText(detail)}</p>}
     </>
   );
 

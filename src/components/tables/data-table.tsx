@@ -3,7 +3,6 @@
 import * as React from 'react';
 import {
   type ColumnDef,
-  flexRender,
   getCoreRowModel,
   type SortingState,
   useReactTable,
@@ -20,6 +19,28 @@ import {
 import { cn } from '@/lib/utils';
 
 export type SortState = { sort: string; dir: 'asc' | 'desc' };
+
+/**
+ * Renders a column's `header` / `cell` by calling it as a plain render function.
+ * TanStack's flexRender mounts it as a component instead, and the column functions are
+ * re-created whenever the table's props change (every router.refresh()): React then sees a
+ * new component type, unmounts the old cell and removes its text node - which throws
+ * NotFoundError on a page the browser has translated (the text node was moved into
+ * <font> wrappers). Column functions only build elements; they never call hooks.
+ */
+function renderSlot<TProps extends object>(slot: unknown, props: TProps): React.ReactNode {
+  return typeof slot === 'function'
+    ? (slot as (props: TProps) => React.ReactNode)(props)
+    : (slot as React.ReactNode);
+}
+
+function rowSignature(row: unknown): string {
+  try {
+    return JSON.stringify(row) ?? '';
+  } catch {
+    return '';
+  }
+}
 
 /**
  * TanStack Table in "manual" mode: the server already filtered, sorted and paged
@@ -96,7 +117,7 @@ export function DataTable<TData>({
                   Boolean(onSortChange);
                 const content = header.isPlaceholder
                   ? null
-                  : flexRender(header.column.columnDef.header, header.getContext());
+                  : renderSlot(header.column.columnDef.header, header.getContext());
                 return (
                   <TableHead
                     key={header.id}
@@ -142,21 +163,27 @@ export function DataTable<TData>({
           ))}
         </TableHeader>
         <TableBody>
-          {table.getRowModel().rows.map((row) => (
-            <TableRow key={row.id}>
-              {row.getVisibleCells().map((cell) => {
-                const meta = cell.column.columnDef.meta;
-                return (
-                  <TableCell
-                    key={cell.id}
-                    className={cn(meta?.numeric && 'text-right tabular-nums', meta?.className)}
-                  >
-                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                  </TableCell>
-                );
-              })}
-            </TableRow>
-          ))}
+          {table.getRowModel().rows.map((row) => {
+            // Cells are keyed by the row's data, so a changed row (new quantity, status,
+            // name...) gets new cells instead of edited text nodes: browser translation
+            // replaces text nodes, and an edit to the replaced node would never show.
+            const signature = rowSignature(row.original);
+            return (
+              <TableRow key={row.id}>
+                {row.getVisibleCells().map((cell) => {
+                  const meta = cell.column.columnDef.meta;
+                  return (
+                    <TableCell
+                      key={meta?.stateful ? cell.id : `${cell.id}:${signature}`}
+                      className={cn(meta?.numeric && 'text-right tabular-nums', meta?.className)}
+                    >
+                      {renderSlot(cell.column.columnDef.cell, cell.getContext())}
+                    </TableCell>
+                  );
+                })}
+              </TableRow>
+            );
+          })}
         </TableBody>
       </Table>
     </div>

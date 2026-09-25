@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { logout } from '@/lib/actions/auth';
 import { ROLE_LABELS, type Role } from '@/lib/constants';
+import { Swap } from '@/lib/safe-text';
 import { cn, initials } from '@/lib/utils';
 
 export type ShellUser = { id: string; name: string; email: string; role: Role };
@@ -28,7 +29,7 @@ export function UserAvatar({ name, className }: { name: string; className?: stri
         className,
       )}
     >
-      {initials(name)}
+      <Swap>{initials(name)}</Swap>
     </span>
   );
 }
@@ -46,7 +47,11 @@ export function UserMenu({ user }: { user: ShellUser }) {
           data-testid="user-menu"
         >
           <UserAvatar name={user.name} />
-          <span className="hidden max-w-[10rem] truncate text-sm font-medium lg:inline">
+          {/* Keyed: a renamed profile replaces the label (safe with browser translation). */}
+          <span
+            key={user.name}
+            className="hidden max-w-[10rem] truncate text-sm font-medium lg:inline"
+          >
             {user.name}
           </span>
         </Button>
@@ -56,8 +61,12 @@ export function UserMenu({ user }: { user: ShellUser }) {
           <div className="flex items-center gap-3">
             <UserAvatar name={user.name} />
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium">{user.name}</p>
-              <p className="truncate text-xs text-muted-foreground">{user.email}</p>
+              <p key={user.name} className="truncate text-sm font-medium">
+                {user.name}
+              </p>
+              <p key={user.email} className="truncate text-xs text-muted-foreground">
+                {user.email}
+              </p>
             </div>
           </div>
           <Badge variant="info" className="mt-2">
@@ -81,7 +90,7 @@ export function UserMenu({ user }: { user: ShellUser }) {
           data-testid="sign-out"
         >
           <LogOut aria-hidden="true" />
-          {pending ? 'Signing out...' : 'Sign out'}
+          <Swap>{pending ? 'Signing out...' : 'Sign out'}</Swap>
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

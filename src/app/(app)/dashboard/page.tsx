@@ -15,6 +15,7 @@ import { appTimeZone, dayKey } from '@/lib/dates';
 import { formatCurrency, formatDayKey, formatNumber } from '@/lib/format';
 import { can } from '@/lib/permissions';
 import { DASHBOARD_WINDOW_DAYS, getDashboardData } from '@/lib/queries/dashboard';
+import { wrapText } from '@/lib/safe-text';
 
 export const metadata: Metadata = { title: 'Dashboard' };
 
@@ -189,8 +190,9 @@ export default async function DashboardPage() {
           )}
           {kpis.lowStock > data.lowStock.length && (
             <p className="px-5 pt-2 text-xs text-muted-foreground">
-              Showing the {data.lowStock.length} emptiest of {formatNumber(kpis.lowStock)} products
-              that need attention.
+              {wrapText(
+                `Showing the ${data.lowStock.length} emptiest of ${formatNumber(kpis.lowStock)} products that need attention.`,
+              )}
             </p>
           )}
         </CardContent>

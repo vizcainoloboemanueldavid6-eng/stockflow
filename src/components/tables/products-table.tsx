@@ -184,7 +184,7 @@ export function ProductsTable({
       {
         id: 'actions',
         header: '',
-        meta: { label: 'Actions', className: 'w-0 pl-0 text-right' },
+        meta: { label: 'Actions', className: 'w-0 pl-0 text-right', stateful: true },
         cell: ({ row }) => (
           <ProductActionsMenu
             product={row.original}

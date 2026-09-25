@@ -34,7 +34,9 @@ export function StockStatusBadge({
 }) {
   const { variant, icon: Icon } = STATUS_STYLE[status];
   return (
-    <Badge variant={variant} className={className} data-status={status}>
+    // Keyed by the status: a change replaces the badge instead of swapping the icon in front
+    // of a text node, which crashes React on a translated page (src/lib/safe-text.tsx).
+    <Badge key={status} variant={variant} className={className} data-status={status}>
       <Icon aria-hidden="true" />
       {STOCK_STATUS_LABELS[status]}
     </Badge>
@@ -54,7 +56,7 @@ const MOVEMENT_STYLE: Record<
 export function MovementTypeBadge({ type }: { type: MovementType }) {
   const { variant, icon: Icon } = MOVEMENT_STYLE[type];
   return (
-    <Badge variant={variant}>
+    <Badge key={type} variant={variant}>
       <Icon aria-hidden="true" />
       {MOVEMENT_TYPE_LABELS[type]}
     </Badge>
@@ -80,7 +82,9 @@ export function CategoryLabel({
       />
       {/* Wraps rather than truncates, even inside a no-wrap table cell: a table cannot
           shrink below one unbreakable word, so a long name without spaces would widen it. */}
-      <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere]">{name}</span>
+      <span key={name} className="min-w-0 whitespace-normal [overflow-wrap:anywhere]">
+        {name}
+      </span>
     </span>
   );
 }

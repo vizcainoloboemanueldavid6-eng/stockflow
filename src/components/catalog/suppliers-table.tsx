@@ -96,7 +96,7 @@ export function SuppliersTable({
       list.push({
         id: 'actions',
         header: '',
-        meta: { label: 'Actions', className: 'w-0 pl-0 text-right' },
+        meta: { label: 'Actions', className: 'w-0 pl-0 text-right', stateful: true },
         cell: ({ row }) => <SupplierRowActions supplier={row.original} permissions={permissions} />,
       });
     }

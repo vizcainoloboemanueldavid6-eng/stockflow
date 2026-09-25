@@ -21,6 +21,7 @@ import { Input } from '@/components/ui/input';
 import { register } from '@/lib/actions/auth';
 import { PASSWORD_MIN_LENGTH } from '@/lib/constants';
 import { applyFieldErrors } from '@/lib/forms';
+import { Swap } from '@/lib/safe-text';
 import { type RegisterInput, registerSchema } from '@/lib/validations/auth';
 
 export function RegisterForm() {
@@ -62,7 +63,9 @@ export function RegisterForm() {
       {error && (
         <Alert variant="destructive" aria-live="polite">
           <CircleAlert aria-hidden="true" />
-          <AlertDescription>{error}</AlertDescription>
+          <AlertDescription>
+            <Swap>{error}</Swap>
+          </AlertDescription>
         </Alert>
       )}
 

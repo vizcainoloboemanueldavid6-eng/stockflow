@@ -3,6 +3,7 @@
 import * as React from 'react';
 import * as SelectPrimitive from '@radix-ui/react-select';
 import { Check, ChevronDown, ChevronUp } from 'lucide-react';
+import { wrapText } from '@/lib/safe-text';
 import { cn } from '@/lib/utils';
 
 function Select(props: React.ComponentProps<typeof SelectPrimitive.Root>) {
@@ -13,8 +14,20 @@ function SelectGroup(props: React.ComponentProps<typeof SelectPrimitive.Group>) 
   return <SelectPrimitive.Group data-slot="select-group" {...props} />;
 }
 
-function SelectValue(props: React.ComponentProps<typeof SelectPrimitive.Value>) {
-  return <SelectPrimitive.Value data-slot="select-value" {...props} />;
+// Radix copies the selected item's text into the trigger and swaps it on every change; the
+// text (and the placeholder) sits in elements so that survives browser translation
+// (src/lib/safe-text.tsx).
+function SelectValue({
+  placeholder,
+  ...props
+}: React.ComponentProps<typeof SelectPrimitive.Value>) {
+  return (
+    <SelectPrimitive.Value
+      data-slot="select-value"
+      placeholder={wrapText(placeholder)}
+      {...props}
+    />
+  );
 }
 
 function SelectTrigger({
@@ -135,7 +148,7 @@ function SelectItem({
           <Check className="size-4" aria-hidden="true" />
         </SelectPrimitive.ItemIndicator>
       </span>
-      <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
+      <SelectPrimitive.ItemText>{wrapText(children)}</SelectPrimitive.ItemText>
     </SelectPrimitive.Item>
   );
 }

@@ -59,6 +59,7 @@ import { createUser, deleteUser, setUserPassword, updateUser } from '@/lib/actio
 import { PASSWORD_MIN_LENGTH, ROLE_LABELS, ROLES, type Role } from '@/lib/constants';
 import { applyFieldErrors } from '@/lib/forms';
 import { formatNumber } from '@/lib/format';
+import { Swap } from '@/lib/safe-text';
 import { SHARED_ACCOUNT_MESSAGE, userChangeRefusal } from '@/lib/permissions';
 import type { UserRow } from '@/lib/queries/catalog';
 import { passwordSchema } from '@/lib/validations/common';
@@ -165,7 +166,7 @@ export function UsersSection({
       {
         id: 'actions',
         header: '',
-        meta: { label: 'Actions', className: 'w-0 pl-0 text-right' },
+        meta: { label: 'Actions', className: 'w-0 pl-0 text-right', stateful: true },
         cell: ({ row }) => (
           <UserRowActions
             user={row.original}
@@ -183,8 +184,8 @@ export function UsersSection({
     <div className="space-y-4" data-testid="users-section">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <p className="max-w-xl text-sm text-muted-foreground">
-          {users.length === 1 ? '1 account' : `${formatNumber(users.length)} accounts`} can sign in.
-          Roles decide what each person can do.
+          <Swap>{users.length === 1 ? '1 account' : `${formatNumber(users.length)} accounts`}</Swap>{' '}
+          can sign in. Roles decide what each person can do.
         </p>
         {permissions.create && (
           <Button onClick={() => setCreating(true)} data-testid="add-user">
@@ -338,7 +339,9 @@ function CreateUserForm({ actor, onDone }: { actor: Actor; onDone: () => void })
                   roles={roles}
                 />
               </FormControl>
-              <FormDescription>{ROLE_HINTS[role]}</FormDescription>
+              <FormDescription>
+                <Swap>{ROLE_HINTS[role]}</Swap>
+              </FormDescription>
               <FormMessage />
             </FormItem>
           )}
@@ -443,7 +446,9 @@ function UserRowActions({
       <Dialog open={dialog === 'edit'} onOpenChange={(open) => !open && close()}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Edit {user.name}</DialogTitle>
+            <DialogTitle>
+              <Swap>{`Edit ${user.name}`}</Swap>
+            </DialogTitle>
             <DialogDescription>{user.email}</DialogDescription>
           </DialogHeader>
           {dialog === 'edit' && (
@@ -605,10 +610,12 @@ function EditUserForm({
                   disabled={Boolean(roleLocked)}
                 />
               </FormControl>
-              <FormDescription>{roleLocked ?? ROLE_HINTS[field.value]}</FormDescription>
+              <FormDescription>
+                <Swap>{roleLocked ?? ROLE_HINTS[field.value]}</Swap>
+              </FormDescription>
               {roleRefusal && (
                 <p className="text-xs font-medium text-destructive dark:text-red-400" role="alert">
-                  {roleRefusal}
+                  <Swap>{roleRefusal}</Swap>
                 </p>
               )}
               <FormMessage />

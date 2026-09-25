@@ -1,5 +1,7 @@
 'use client';
 
+import { Swap } from '@/lib/safe-text';
+
 /**
  * Pieces shared by the Recharts charts. Colours come from theme tokens
  * (--chart-1 blue, --chart-2 orange, validated for both themes - DECISIONS.md
@@ -35,7 +37,13 @@ export function ChartTooltipContent({
   const heading = labelFormatter ? labelFormatter(label, payload) : String(label ?? '');
   return (
     <div className="min-w-32 rounded-md border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-md">
-      {heading && <p className="mb-1.5 font-medium text-muted-foreground">{heading}</p>}
+      {/* The tooltip follows the pointer: its texts are keyed so each point gets fresh
+          elements, which browser translation handles (src/lib/safe-text.tsx). */}
+      {heading && (
+        <p key={heading} className="mb-1.5 font-medium text-muted-foreground">
+          {heading}
+        </p>
+      )}
       <ul className="space-y-1">
         {payload.map((item) => (
           <li key={String(item.dataKey ?? item.name)} className="flex items-center gap-2">
@@ -44,10 +52,10 @@ export function ChartTooltipContent({
               style={{ backgroundColor: item.color }}
               aria-hidden="true"
             />
-            <span className="font-semibold tabular-nums text-foreground">
+            <Swap className="font-semibold tabular-nums text-foreground">
               {valueFormatter(Number(item.value ?? 0))}
-            </span>
-            <span className="text-muted-foreground">{item.name}</span>
+            </Swap>
+            <Swap className="text-muted-foreground">{String(item.name ?? '')}</Swap>
           </li>
         ))}
       </ul>
@@ -74,8 +82,12 @@ export function LegendKey({
         style={{ backgroundColor: color }}
         aria-hidden="true"
       />
-      <span>{label}</span>
-      {value && <span className="font-medium tabular-nums text-foreground">{value}</span>}
+      <span key={label}>{label}</span>
+      {value && (
+        <span key={value} className="font-medium tabular-nums text-foreground">
+          {value}
+        </span>
+      )}
     </span>
   );
 }
@@ -103,8 +115,8 @@ export function TruncatedTick({
       fill="hsl(var(--muted-foreground))"
       fontSize={12}
     >
-      <title>{text}</title>
-      {short}
+      <title key={text}>{text}</title>
+      <tspan key={short}>{short}</tspan>
     </text>
   );
 }

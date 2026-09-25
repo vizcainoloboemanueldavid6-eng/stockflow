@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { Slot } from '@radix-ui/react-slot';
 import { cva, type VariantProps } from 'class-variance-authority';
+import { wrapText } from '@/lib/safe-text';
 import { cn } from '@/lib/utils';
 
 const buttonVariants = cva(
@@ -35,14 +36,18 @@ export type ButtonProps = React.ComponentProps<'button'> &
     asChild?: boolean;
   };
 
-function Button({ className, variant, size, asChild = false, ...props }: ButtonProps) {
+function Button({ className, variant, size, asChild = false, children, ...props }: ButtonProps) {
   const Comp = asChild ? Slot : 'button';
   return (
     <Comp
       data-slot="button"
       className={cn(buttonVariants({ variant, size, className }))}
       {...props}
-    />
+    >
+      {/* Labels sit in their own elements so spinners that come and go next to them, and
+          labels that change, survive browser translation (src/lib/safe-text.tsx). */}
+      {asChild ? children : wrapText(children)}
+    </Comp>
   );
 }
 

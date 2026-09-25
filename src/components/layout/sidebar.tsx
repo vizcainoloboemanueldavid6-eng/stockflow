@@ -8,6 +8,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import type { Role } from '@/lib/constants';
 import { isActivePath, NAV_SECTIONS, type NavItem, SETTINGS_ITEM } from '@/lib/navigation';
 import { can } from '@/lib/permissions';
+import { Swap } from '@/lib/safe-text';
 import { cn } from '@/lib/utils';
 
 function NavLink({
@@ -146,7 +147,7 @@ export function SidebarNav({
               </button>
             </TooltipTrigger>
             <TooltipContent side="right">
-              {collapsed ? 'Expand sidebar' : 'Collapse sidebar'}{' '}
+              <Swap>{collapsed ? 'Expand sidebar' : 'Collapse sidebar'}</Swap>{' '}
               <kbd className="ml-1 font-sans opacity-70">Ctrl B</kbd>
             </TooltipContent>
           </Tooltip>

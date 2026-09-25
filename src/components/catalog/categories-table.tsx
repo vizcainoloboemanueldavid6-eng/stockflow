@@ -82,7 +82,7 @@ export function CategoriesTable({
       list.push({
         id: 'actions',
         header: '',
-        meta: { label: 'Actions', className: 'w-0 pl-0 text-right' },
+        meta: { label: 'Actions', className: 'w-0 pl-0 text-right', stateful: true },
         cell: ({ row }) => <CategoryRowActions category={row.original} permissions={permissions} />,
       });
     }

@@ -11,6 +11,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { formatNumber } from '@/lib/format';
+import { Swap } from '@/lib/safe-text';
 import { PAGE_SIZE_OPTIONS } from '@/lib/list-options';
 
 /** "Showing 11-20 of 60", rows-per-page and page buttons for a server-paged table. */
@@ -44,9 +45,11 @@ export function DataTablePagination({
       className="flex flex-col-reverse items-center justify-between gap-3 pt-3 text-sm sm:flex-row"
     >
       <p className="text-muted-foreground" aria-live="polite">
-        {total === 0
-          ? `No ${noun}`
-          : `Showing ${formatNumber(first)}–${formatNumber(last)} of ${formatNumber(total)} ${noun}`}
+        <Swap>
+          {total === 0
+            ? `No ${noun}`
+            : `Showing ${formatNumber(first)}–${formatNumber(last)} of ${formatNumber(total)} ${noun}`}
+        </Swap>
       </p>
       <div className="flex items-center gap-4 sm:gap-6">
         <div className="flex items-center gap-2">
@@ -75,7 +78,7 @@ export function DataTablePagination({
           </Select>
         </div>
         <span className="whitespace-nowrap tabular-nums text-muted-foreground">
-          Page {page} of {pageCount}
+          <Swap>{`Page ${page} of ${pageCount}`}</Swap>
         </span>
         <div className="flex items-center gap-1">
           <Button

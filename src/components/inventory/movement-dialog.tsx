@@ -39,6 +39,7 @@ import {
   REASON_PLACEHOLDERS,
   stockAfterMovement,
 } from '@/lib/movement-form';
+import { wrapText } from '@/lib/safe-text';
 import { cn } from '@/lib/utils';
 import { type MovementInput, movementSchema } from '@/lib/validations/movement';
 
@@ -204,7 +205,7 @@ function MovementForm({
                 })}
               </div>
               <FormDescription>
-                {TYPE_OPTIONS.find((option) => option.value === field.value)?.hint}
+                {wrapText(TYPE_OPTIONS.find((option) => option.value === field.value)?.hint)}
               </FormDescription>
             </FormItem>
           )}
@@ -302,15 +303,19 @@ function MovementForm({
             aria-live="polite"
             data-testid="stock-preview"
           >
-            {formatNumber(product.quantity)} in stock
-            {after !== null && (
-              <>
-                {' '}
-                → <span className="font-semibold tabular-nums">{formatNumber(after)}</span> after
-                this movement
-                {after < 0 && ' — more than is on hand, so it will be refused'}
-              </>
-            )}
+            {/* Keyed by everything it shows: a new preview replaces the old one instead of
+                editing its text nodes, which browser translation replaces (safe-text.tsx). */}
+            <span key={`${product.id}:${product.quantity}:${after}`}>
+              {formatNumber(product.quantity)} in stock
+              {after !== null && (
+                <>
+                  {' '}
+                  → <span className="font-semibold tabular-nums">{formatNumber(after)}</span> after
+                  this movement
+                  {after < 0 && ' — more than is on hand, so it will be refused'}
+                </>
+              )}
+            </span>
           </p>
         )}
 
@@ -336,7 +341,8 @@ function MovementForm({
           </Button>
           <Button type="submit" disabled={pending}>
             {pending && <LoaderCircle className="animate-spin" aria-hidden="true" />}
-            Record {MOVEMENT_TYPE_LABELS[type].toLowerCase()}
+            {/* One string: it is swapped as a whole and translated as one sentence. */}
+            {`Record ${MOVEMENT_TYPE_LABELS[type].toLowerCase()}`}
           </Button>
         </DialogFooter>
       </form>

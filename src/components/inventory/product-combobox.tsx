@@ -14,6 +14,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { type ProductSearchHit, useProductSearch } from '@/hooks/use-product-search';
 import { stockStatus } from '@/lib/constants';
 import { formatNumber } from '@/lib/format';
+import { Swap } from '@/lib/safe-text';
 import { cn } from '@/lib/utils';
 
 /**
@@ -63,16 +64,19 @@ export function ProductCombobox({
             triggerProps.className,
           )}
         >
+          {/* Keyed: a new pick replaces the whole label (safe with browser translation). */}
           {value ? (
-            <span className="flex min-w-0 flex-col">
+            <span key={`${value.id}:${value.quantity}`} className="flex min-w-0 flex-col">
               <span className="truncate font-medium">{value.name}</span>
               <span className="truncate text-xs text-muted-foreground">
-                <span className="font-mono">{value.sku}</span> · {formatNumber(value.quantity)} in
-                stock
+                <span className="font-mono">{value.sku}</span>
+                {` · ${formatNumber(value.quantity)} in stock`}
               </span>
             </span>
           ) : (
-            <span className="text-muted-foreground">Search by name or SKU...</span>
+            <span key="placeholder" className="text-muted-foreground">
+              Search by name or SKU...
+            </span>
           )}
           <ChevronsUpDown className="size-4 shrink-0 opacity-50" aria-hidden="true" />
         </button>
@@ -103,9 +107,11 @@ export function ProductCombobox({
             )}
             {trimmed && !loading && (
               <CommandEmpty>
-                {failed
-                  ? 'Search is unavailable right now.'
-                  : `No active product matches "${trimmed}".`}
+                <Swap>
+                  {failed
+                    ? 'Search is unavailable right now.'
+                    : `No active product matches "${trimmed}".`}
+                </Swap>
               </CommandEmpty>
             )}
             {results.length > 0 && (
@@ -138,7 +144,7 @@ export function ProductCombobox({
                           status === 'out_of_stock' && 'text-destructive dark:text-red-400',
                         )}
                       >
-                        {formatNumber(product.quantity)} in stock
+                        <Swap>{`${formatNumber(product.quantity)} in stock`}</Swap>
                       </span>
                       <Check
                         className={cn('size-4', selected ? 'opacity-100' : 'opacity-0')}

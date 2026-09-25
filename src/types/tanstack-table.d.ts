@@ -10,5 +10,10 @@ declare module '@tanstack/react-table' {
     numeric?: boolean;
     /** Accessible name for a header that shows no text (e.g. the actions column). */
     label?: string;
+    /**
+     * The cell keeps its own state (menus, dialogs), so it is not re-created when the row
+     * data changes. Other cells are (see DataTable).
+     */
+    stateful?: boolean;
   }
 }

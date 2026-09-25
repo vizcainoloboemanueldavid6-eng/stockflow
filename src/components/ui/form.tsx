@@ -13,6 +13,7 @@ import {
   type FieldValues,
 } from 'react-hook-form';
 import { Label } from '@/components/ui/label';
+import { wrapText } from '@/lib/safe-text';
 import { cn } from '@/lib/utils';
 
 /**
@@ -133,7 +134,8 @@ function FormMessage({ className, children, ...props }: React.ComponentProps<'p'
       className={cn('text-xs font-medium text-destructive dark:text-red-400', className)}
       {...props}
     >
-      {body}
+      {/* One message replaces another in place: keyed elements survive browser translation. */}
+      {wrapText(body)}
     </p>
   );
 }

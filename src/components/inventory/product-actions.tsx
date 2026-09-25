@@ -27,6 +27,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { deleteProduct, setProductArchived } from '@/lib/actions/products';
 import type { CategoryOption, Option, ProductRow } from '@/lib/queries/products';
+import { Swap } from '@/lib/safe-text';
 
 /** What the signed-in role may do; computed on the server with can(), enforced by the actions. */
 export type ProductPermissions = {
@@ -190,7 +191,7 @@ export function ProductActionsMenu({
               ) : (
                 <Archive aria-hidden="true" />
               )}
-              {product.archived ? 'Restore' : 'Archive'}
+              <Swap>{product.archived ? 'Restore' : 'Archive'}</Swap>
             </DropdownMenuItem>
           )}
           {permissions.delete && (
@@ -296,7 +297,7 @@ export function ProductDetailActions({
                 ) : (
                   <Archive aria-hidden="true" />
                 )}
-                {product.archived ? 'Restore product' : 'Archive product'}
+                <Swap>{product.archived ? 'Restore product' : 'Archive product'}</Swap>
               </DropdownMenuItem>
             )}
             {permissions.delete && (

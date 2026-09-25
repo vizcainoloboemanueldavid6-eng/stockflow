@@ -4,6 +4,7 @@ import { THEME_SCRIPT, ThemeProvider } from '@/components/theme/theme-provider';
 import { Toaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { APP_NAME } from '@/lib/constants';
+import { DOM_GUARD_SCRIPT } from '@/lib/dom-guard';
 import './globals.css';
 
 const inter = Inter({ subsets: ['latin'], display: 'swap', variable: '--font-sans' });
@@ -30,9 +31,11 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    // The inline script sets the `dark` class before hydration, hence the warning suppression.
+    // The inline theme script sets the `dark` class before hydration, hence the warning
+    // suppression. The DOM guard also has to run before hydration (src/lib/dom-guard.ts).
     <html lang="en" className={inter.variable} suppressHydrationWarning>
       <head>
+        <script dangerouslySetInnerHTML={{ __html: DOM_GUARD_SCRIPT }} />
         <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
       </head>
       <body className="min-h-dvh">

@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/table';
 import { formatNumber } from '@/lib/format';
 import type { LowStockRow } from '@/lib/queries/dashboard';
+import { wrapText } from '@/lib/safe-text';
 
 /**
  * Dashboard alerts: products at or below their reorder level, emptiest first.
@@ -54,24 +55,25 @@ export function LowStockTable({
                 href={`/products/${row.id}`}
                 className="block max-w-[10rem] truncate font-medium text-link underline-offset-4 hover:underline sm:max-w-[16rem] xl:max-w-xs"
               >
-                {row.name}
+                {wrapText(row.name)}
               </Link>
               <StockStatusBadge status={row.status} className="mt-1 sm:hidden" />
             </TableCell>
             <TableCell className="hidden font-mono text-xs text-muted-foreground xl:table-cell">
-              {row.sku}
+              {wrapText(row.sku)}
             </TableCell>
             <TableCell className="text-right font-medium tabular-nums">
-              {formatNumber(row.quantity)}
+              {/* Keyed text: a restock from this row updates it on a translated page too. */}
+              {wrapText(formatNumber(row.quantity))}
             </TableCell>
             <TableCell className="hidden text-right tabular-nums text-muted-foreground lg:table-cell">
-              {formatNumber(row.reorderLevel)}
+              {wrapText(formatNumber(row.reorderLevel))}
             </TableCell>
             <TableCell className="hidden sm:table-cell">
               <StockStatusBadge status={row.status} />
             </TableCell>
             <TableCell className="hidden max-w-[14rem] whitespace-normal text-muted-foreground [overflow-wrap:anywhere] xl:table-cell">
-              {row.supplierName ?? '—'}
+              {wrapText(row.supplierName ?? '—')}
             </TableCell>
             {canRestock && (
               <TableCell className="w-0 text-right">
