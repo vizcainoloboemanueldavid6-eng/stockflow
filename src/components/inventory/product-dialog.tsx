@@ -2,9 +2,11 @@
 
 import * as React from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { LoaderCircle } from 'lucide-react';
+import Link from 'next/link';
+import { Info, LoaderCircle } from 'lucide-react';
 import { type Resolver, useForm } from 'react-hook-form';
 import { toast } from 'sonner';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -105,6 +107,7 @@ export function ProductDialog({
   trigger,
   open: controlledOpen,
   onOpenChange,
+  canCreateCategory = false,
 }: {
   product?: ProductRow | null;
   categories: CategoryOption[];
@@ -112,6 +115,8 @@ export function ProductDialog({
   trigger?: React.ReactNode;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  /** Offer a link to /categories when there is no category to pick yet. */
+  canCreateCategory?: boolean;
 }) {
   const [uncontrolledOpen, setUncontrolledOpen] = React.useState(false);
   const open = controlledOpen ?? uncontrolledOpen;
@@ -130,17 +135,54 @@ export function ProductDialog({
               : 'Opening stock is recorded as a stock-in movement, so the history starts complete.'}
           </DialogDescription>
         </DialogHeader>
-        {open && (
-          <ProductForm
-            key={product?.id ?? 'new'}
-            product={product ?? null}
-            categories={categories}
-            suppliers={suppliers}
-            onDone={() => setOpen(false)}
-          />
+        {open && !editing && categories.length === 0 ? (
+          <NoCategoriesYet canCreateCategory={canCreateCategory} onClose={() => setOpen(false)} />
+        ) : (
+          open && (
+            <ProductForm
+              key={product?.id ?? 'new'}
+              product={product ?? null}
+              categories={categories}
+              suppliers={suppliers}
+              onDone={() => setOpen(false)}
+            />
+          )
         )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** A product needs a category; with none yet the form would be a dead end. */
+function NoCategoriesYet({
+  canCreateCategory,
+  onClose,
+}: {
+  canCreateCategory: boolean;
+  onClose: () => void;
+}) {
+  return (
+    <div className="grid gap-4" data-testid="no-categories-notice">
+      <Alert variant="info">
+        <Info aria-hidden="true" />
+        <AlertDescription>
+          Every product belongs to a category, and there are none yet.{' '}
+          {canCreateCategory
+            ? 'Create a category first, then come back to add the product.'
+            : 'Ask an administrator to create one first.'}
+        </AlertDescription>
+      </Alert>
+      <DialogFooter>
+        <Button type="button" variant="outline" onClick={onClose}>
+          Close
+        </Button>
+        {canCreateCategory && (
+          <Button asChild>
+            <Link href="/categories">Create a category</Link>
+          </Button>
+        )}
+      </DialogFooter>
+    </div>
   );
 }
 

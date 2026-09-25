@@ -66,7 +66,9 @@ export default async function ProductDetailPage({ params, searchParams }: Props)
 
       <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div className="min-w-0 space-y-2">
-          <h1 className="text-2xl font-semibold tracking-tight">{product.name}</h1>
+          <h1 className="text-2xl font-semibold tracking-tight [overflow-wrap:anywhere]">
+            {product.name}
+          </h1>
           <div className="flex flex-wrap items-center gap-2 text-sm">
             <span className="font-mono text-muted-foreground">{product.sku}</span>
             <StockStatusBadge status={product.status} />
@@ -118,14 +120,16 @@ export default async function ProductDetailPage({ params, searchParams }: Props)
       </section>
 
       <div className="mt-6 grid gap-6 xl:grid-cols-3">
-        <Card className="xl:col-span-1 xl:self-start">
+        <Card className="min-w-0 xl:col-span-1 xl:self-start">
           <CardHeader>
             <CardTitle>Details</CardTitle>
           </CardHeader>
           <CardContent>
-            <dl className="grid grid-cols-[7rem_1fr] gap-x-4 gap-y-3 text-sm">
+            {/* minmax(0, 1fr) and overflow-wrap:anywhere: a long word or pasted link in any
+                field wraps inside the card instead of widening the page. */}
+            <dl className="grid grid-cols-[7rem_minmax(0,1fr)] gap-x-4 gap-y-3 text-sm [&_dd]:min-w-0 [&_dd]:[overflow-wrap:anywhere]">
               <dt className="text-muted-foreground">Category</dt>
-              <dd className="min-w-0">
+              <dd>
                 <Link
                   href={`/products?category=${product.categoryId}`}
                   className="underline-offset-4 hover:underline"
@@ -134,7 +138,7 @@ export default async function ProductDetailPage({ params, searchParams }: Props)
                 </Link>
               </dd>
               <dt className="text-muted-foreground">Supplier</dt>
-              <dd className="min-w-0 truncate">
+              <dd>
                 {product.supplierId ? (
                   <Link
                     href={`/products?supplier=${product.supplierId}`}

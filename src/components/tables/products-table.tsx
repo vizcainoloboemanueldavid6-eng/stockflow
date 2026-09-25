@@ -61,6 +61,7 @@ export function ProductsTable({
   suppliers,
   permissions,
   catalogueEmpty,
+  canCreateCategory = false,
 }: {
   rows: ProductRow[];
   total: number;
@@ -73,6 +74,8 @@ export function ProductsTable({
   permissions: ProductPermissions;
   /** True when there are no products at all (not just none matching the filters). */
   catalogueEmpty: boolean;
+  /** May create categories (shown when there are none yet, since a product needs one). */
+  canCreateCategory?: boolean;
 }) {
   const { update, isPending } = useSearchParamsUpdater(URL_DEFAULTS);
   const filtered = Boolean(
@@ -200,6 +203,7 @@ export function ProductsTable({
     <ProductDialog
       categories={categories}
       suppliers={suppliers}
+      canCreateCategory={canCreateCategory}
       trigger={
         <Button data-testid="add-product-empty">
           <Plus aria-hidden="true" />
@@ -208,6 +212,30 @@ export function ProductsTable({
       }
     />
   ) : null;
+
+  if (catalogueEmpty && categories.length === 0 && permissions.create) {
+    // A product needs a category: send people there first instead of into a dead end.
+    return (
+      <EmptyState
+        title="No products yet"
+        description={
+          canCreateCategory
+            ? 'Every product belongs to a category, and there are none yet. Create one first, then add your products.'
+            : 'Every product belongs to a category, and there are none yet. Ask an administrator to create one.'
+        }
+        action={
+          canCreateCategory ? (
+            <Button asChild data-testid="create-category-first">
+              <Link href="/categories">
+                <Plus aria-hidden="true" />
+                Create a category
+              </Link>
+            </Button>
+          ) : null
+        }
+      />
+    );
+  }
 
   if (catalogueEmpty) {
     return (

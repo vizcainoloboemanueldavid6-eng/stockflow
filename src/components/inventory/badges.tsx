@@ -78,7 +78,9 @@ export function CategoryLabel({
         style={{ backgroundColor: color }}
         aria-hidden="true"
       />
-      <span className="truncate">{name}</span>
+      {/* Wraps rather than truncates: a table cell cannot shrink below one unbreakable
+          word, so a long name without spaces would otherwise widen the whole page. */}
+      <span className="min-w-0 [overflow-wrap:anywhere]">{name}</span>
     </span>
   );
 }

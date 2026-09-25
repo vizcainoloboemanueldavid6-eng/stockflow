@@ -37,6 +37,7 @@ export default async function ProductsPage({
     delete: can(user.role, 'product:delete'),
     move: can(user.role, 'movement:create'),
   };
+  const canCreateCategory = can(user.role, 'category:create');
 
   // The CSV export takes the same filters and order as the table (every page, no paging).
   const exportParams = new URLSearchParams();
@@ -68,6 +69,7 @@ export default async function ProductsPage({
               <ProductDialog
                 categories={options.categories}
                 suppliers={options.suppliers}
+                canCreateCategory={canCreateCategory}
                 trigger={
                   <Button data-testid="add-product">
                     <Plus aria-hidden="true" />
@@ -98,6 +100,7 @@ export default async function ProductsPage({
         suppliers={options.suppliers}
         permissions={permissions}
         catalogueEmpty={productCount === 0}
+        canCreateCategory={canCreateCategory}
       />
     </>
   );
