@@ -66,7 +66,8 @@ Regenerate them with `npm run db:reset-demo && npm run build && npm run shots`.
   for pages and products, dark mode without a flash, loading skeletons, empty states with a call
   to action, and toasts for every success and error.
 - Responsive down to 390 px with no sideways scrolling: tables drop columns by breakpoint.
-- Rate-limited sign-in (5 failures per email and IP in 15 minutes) and registration.
+- Rate-limited sign-in (5 failures per email and client in 15 minutes) and registration, counted
+  before the password check so simultaneous attempts cannot slip through.
 
 ---
 
@@ -100,19 +101,23 @@ Folder layout, conventions and every decision the spec left open are in
 
 ## Roles
 
-| Capability                                    | Admin | Staff |    Demo    |
-| --------------------------------------------- | :---: | :---: | :--------: |
-| View dashboard, products, movements, reports  |  yes  |  yes  |    yes     |
-| Export CSV                                    |  yes  |  yes  |    yes     |
-| Create and edit products, register movements  |  yes  |  yes  |    yes     |
-| Archive or delete products                    |  yes  |  no   |    yes     |
-| Create, edit, delete categories and suppliers |  yes  |  no   |    yes     |
-| Manage users (create, change role)            |  yes  |  no   | staff only |
-| Delete users, set other users' passwords      |  yes  |  no   |     no     |
-| Change own password                           |  yes  |  yes  |     no     |
+| Capability                                    | Admin | Staff |         Demo         |
+| --------------------------------------------- | :---: | :---: | :------------------: |
+| View dashboard, products, movements, reports  |  yes  |  yes  |         yes          |
+| Export CSV                                    |  yes  |  yes  |         yes          |
+| Create and edit products, register movements  |  yes  |  yes  |         yes          |
+| Archive or delete products                    |  yes  |  no   |         yes          |
+| Create, edit, delete categories and suppliers |  yes  |  no   |         yes          |
+| Manage users (add, rename, change role)       |  yes  |  no   | add and rename staff |
+| Delete users, set other users' passwords      |  yes  |  no   |          no          |
+| Change own password                           |  yes  |  yes  |          no          |
 
 Every "no" is enforced by the server action or route handler, and covered by tests that call
 the actions directly (see [Tests](#tests)). The Demo account is reset to the seed data every day.
+
+While the public demo is on (`DEMO_ENABLED`, the default), the three seeded accounts below are
+**shared**: nobody, admins included, can delete them or change their role, password or email, so
+no visitor can lock the published logins. Accounts people create are ordinary accounts.
 
 ## Demo credentials
 
@@ -122,8 +127,17 @@ the actions directly (see [Tests](#tests)). The Demo account is reset to the see
 | Staff | `staff@stockflow.test` | `Staff#2026` |
 | Demo  | `demo@stockflow.test`  | `Demo#2026`  |
 
-These are public on purpose. For a real deployment set `SEED_ADMIN_PASSWORD` and
-`SEED_STAFF_PASSWORD` (and `DEMO_ENABLED=false`) before the first seed.
+These are public on purpose. **For a real deployment** set `DEMO_ENABLED=false`,
+`SEED_ADMIN_PASSWORD` and `SEED_STAFF_PASSWORD` before the first seed (on Vercel: before the first
+deploy). With the demo off:
+
+- the seed creates no demo account (and removes one left from an earlier seed), and refuses to
+  run until both passwords are set, so the README passwords never reach a real database;
+- an account with the Demo role cannot sign in, even with the right password, and a Demo session
+  opened earlier stops working;
+- "Try the demo" disappears and the daily reset does nothing.
+
+`DEMO_EMAIL` / `DEMO_PASSWORD` change the demo account itself while the demo is on.
 
 ---
 
@@ -178,7 +192,8 @@ npm run dev
 ```
 
 The app works on a copy of that file in your temp folder; `npm run db:sqlite` rebuilds it from
-scratch. To go back to PostgreSQL, set `DATABASE_PROVIDER="postgresql"` and run
+scratch, and `npm run db:seed` / `db:reset-demo` reset both the file and the copy a running app is
+using, so no restart is needed. To go back to PostgreSQL, set `DATABASE_PROVIDER="postgresql"` and run
 `npm run db:generate`: the Prisma Client is generated for one provider at a time.
 
 ### Production build locally
@@ -207,7 +222,7 @@ npm run build && npm start   # http://localhost:3000
 | `npm run db:migrate`                 | `prisma migrate dev` (create a new migration while developing)                                                                                         |
 | `npm run db:generate`                | Generate the Prisma Client for `DATABASE_PROVIDER`                                                                                                     |
 | `npm run db:push`                    | Sync the schema without a migration (prototyping)                                                                                                      |
-| `npm run db:seed`                    | Replace the business data with the sample set and (re)create the three accounts; keeps other users                                                     |
+| `npm run db:seed`                    | Replace the business data with the sample set and (re)create the seeded accounts; keeps other users (SQLite: also the running app's copy)              |
 | `npm run db:reset-demo`              | Same, and removes every other account: the demo returns to a known state                                                                               |
 | `npm run db:sqlite`                  | Build and seed the SQLite database file                                                                                                                |
 | `npm run shots`                      | Capture the README screenshots into `docs/`                                                                                                            |
@@ -228,13 +243,17 @@ npm run test:e2e           # browser: every page and flow, as admin, staff and d
 - **Unit** (`tests/unit`, Vitest): stock can never go negative, including concurrent stock-outs;
   CSV escaping and the export route handlers; the permission matrix; every restricted server
   action called directly with a mocked Staff/Demo session returns `FORBIDDEN` without touching the
-  database; validation schemas; dates, metrics and URL parsing; the seed generator.
+  database; the sign-in check (rate limit under 30 simultaneous guesses, spoofed proxy headers,
+  the demo switch); validation schemas; dates, metrics and URL parsing; the seed generator.
 - **Integration** (`tests/integration`): against the database in `.env`. Two overlapping
   stock-outs on PostgreSQL (the second provably waits for the first one's row lock, then is
   refused); the real delete actions called with a mocked Staff session change nothing, and a
   session that _claims_ Admin for the Staff account is still refused. The same suite runs in
   SQLite mode (`DATABASE_PROVIDER=sqlite npm run test:integration` after `npm run db:sqlite`),
   where writers are serialised and the second stock-out gets the same "not enough stock" error.
+  Both modes also run a burst of 40 simultaneous stock-outs through the real server action (every
+  answer is a stock result, never an error), literal `%` / `_` searches, and the seed with the
+  demo switched off; SQLite mode adds the re-seeding of an aged demo copy.
 - **End to end** (`tests/e2e`, Playwright): `npm run test:e2e` starts a freshly migrated and
   seeded `stockflow_e2e` database on the embedded PostgreSQL (started if needed; your development
   data is not touched), runs `npm run build`, starts `next start` on :3100 and a second server with
@@ -245,7 +264,8 @@ npm run test:e2e           # browser: every page and flow, as admin, staff and d
   themes, and **direct server-action calls**: the request an admin's browser sends to delete a
   product or a category is replayed with the Staff session cookie and must be refused (with the
   admin replay as the positive control); the same for Demo changing its password and for
-  registration or the demo login on the closed server.
+  registration or the demo login on the closed server, where the published demo credentials must
+  not sign in through the form or a direct POST either.
 
 E2E options: `E2E_SKIP_BUILD=1` reuses the current build; `E2E_BASE_URL=http://localhost:3000`
 runs against a server you started (then the "closed" project needs `E2E_CLOSED_BASE_URL`);
@@ -269,19 +289,20 @@ integration) are in [docs/DEPLOY.es.md](docs/DEPLOY.es.md).
    `prisma migrate deploy` and seeds the database **only if it has no users**, so the first
    deployment comes up with demo data and later deployments never overwrite anything.
 
-| Variable                                                    | Required     | Value                                                                                  |
-| ----------------------------------------------------------- | ------------ | -------------------------------------------------------------------------------------- |
-| `DATABASE_URL`                                              | yes          | Neon **pooled** connection string (host contains `-pooler`), with `?sslmode=require`   |
-| `DATABASE_URL_UNPOOLED`                                     | recommended  | Neon **direct** connection string; used by the build for migrations and the first seed |
-| `AUTH_SECRET`                                               | yes          | `npx auth secret` or `openssl rand -base64 33`                                         |
-| `CRON_SECRET`                                               | for the demo | `openssl rand -hex 32`; protects the daily demo reset                                  |
-| `APP_TIME_ZONE`                                             | recommended  | e.g. `America/Bogota`; Vercel runs in UTC, this decides what "today" means             |
-| `DATABASE_PROVIDER`                                         | no           | `postgresql` (the default)                                                             |
-| `ALLOW_REGISTRATION`                                        | no           | `false` closes self-service sign-up                                                    |
-| `DEMO_ENABLED`                                              | no           | `false` for a real business: hides "Try the demo" and disables the reset               |
-| `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` / `SEED_STAFF_*` | no           | Seeded accounts for a real deployment (set before the first deploy)                    |
+| Variable                                                    | Required      | Value                                                                                  |
+| ----------------------------------------------------------- | ------------- | -------------------------------------------------------------------------------------- |
+| `DATABASE_URL`                                              | yes           | Neon **pooled** connection string (host contains `-pooler`), with `?sslmode=require`   |
+| `DATABASE_URL_UNPOOLED`                                     | recommended   | Neon **direct** connection string; used by the build for migrations and the first seed |
+| `AUTH_SECRET`                                               | yes           | `npx auth secret` or `openssl rand -base64 33`                                         |
+| `CRON_SECRET`                                               | for the demo  | `openssl rand -hex 32`; protects the daily demo reset                                  |
+| `APP_TIME_ZONE`                                             | recommended   | e.g. `America/Bogota`; Vercel runs in UTC, this decides what "today" means             |
+| `DATABASE_PROVIDER`                                         | no            | `postgresql` (the default)                                                             |
+| `ALLOW_REGISTRATION`                                        | no            | `false` closes self-service sign-up                                                    |
+| `DEMO_ENABLED`                                              | no            | `false` for a real business (see [Demo credentials](#demo-credentials))                |
+| `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` / `SEED_STAFF_*` | with demo off | Seeded accounts for a real deployment (set before the first deploy)                    |
 
-`AUTH_TRUST_HOST` and `AUTH_URL` are not needed on Vercel.
+`AUTH_TRUST_HOST` and `AUTH_URL` are not needed on Vercel, and neither is `TRUST_PROXY` (see
+[Security notes](#security-notes)).
 
 ### Option 2: zero-config demo with SQLite (no database service)
 
@@ -297,7 +318,9 @@ For a public demo link before any database exists:
 The build creates and seeds a SQLite file and ships it inside every server function; each
 function instance copies it to `/tmp` on first use. It is a demo, not a database: data resets on
 every cold start, and two visitors on different instances can see different data. A small banner
-says so. Switch to Option 1 (set `DATABASE_URL`, remove `DATABASE_PROVIDER`, redeploy) for real
+says so. The data never looks old: when the build's data was seeded on an earlier day (or over an
+hour ago), a new instance seeds it again for the current moment before its first query, so the
+30-day chart and "movements today" stay full however long ago the last deploy was. Switch to Option 1 (set `DATABASE_URL`, remove `DATABASE_PROVIDER`, redeploy) for real
 use.
 
 ### The demo-reset cron
@@ -321,9 +344,16 @@ curl -H "Authorization: Bearer $CRON_SECRET" https://<your-app>.vercel.app/api/c
   a deleted account takes effect on the next request.
 - Zod validates every input on the server with the same schemas the forms use.
 - Passwords are hashed with bcrypt (cost 10); sessions are signed JWTs (12 hours).
-- Sign-in is rate limited per email and IP, registration per IP. The limiter is in memory, which
-  on serverless is per instance: it slows brute force down but is not a hard guarantee (see
-  DECISIONS.md for the upgrade path).
+- Sign-in is rate limited per email and client (5 failures in 15 minutes), registration per
+  client (5 attempts an hour, "email already exists" answers included). Each attempt is counted
+  before the database lookup, so a burst of simultaneous requests gets no extra tries. The client
+  address comes from `X-Forwarded-For` only when a proxy vouches for it: on Vercel, or with
+  `TRUST_PROXY=true` behind your own reverse proxy (the entry it appended). Otherwise a client
+  could write that header itself, so the limits apply per email (sign-in) and per server
+  (registration). The published demo account is exempt: its password is public, and "Try the
+  demo" must not be lockable by someone else's typos.
+- The limiter is in memory, which on serverless is per instance: it slows brute force down but
+  is not a hard guarantee (see DECISIONS.md for the upgrade path).
 - Security headers (`X-Frame-Options: DENY`, `nosniff`, referrer and permissions policies).
 - Secrets live in `.env` (git-ignored); `.env.example` documents every variable.
 - `npm audit --omit=dev` findings and their status are recorded in DECISIONS.md.

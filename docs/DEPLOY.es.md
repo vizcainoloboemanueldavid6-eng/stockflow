@@ -157,9 +157,23 @@ Resumen de variables (modo Neon):
 | `CRON_SECRET`           | para la demo   | Protege `/api/cron/reset-demo`                                     |
 | `APP_TIME_ZONE`         | recomendada    | Qué es "hoy" en el dashboard (Vercel funciona en UTC)              |
 | `ALLOW_REGISTRATION`    | no             | `false` cierra el registro público                                 |
-| `DEMO_ENABLED`          | no             | `false` en un negocio real: oculta "Try the demo" y apaga el reinicio |
+| `DEMO_ENABLED`          | no             | `false` en un negocio real (ver abajo)                             |
+| `SEED_ADMIN_PASSWORD`   | con demo apagada | Contraseña del admin creado en la primera carga                  |
+| `SEED_STAFF_PASSWORD`   | con demo apagada | Contraseña del usuario Staff creado en la primera carga          |
 
-No hace falta `AUTH_TRUST_HOST` ni `AUTH_URL` en Vercel.
+No hace falta `AUTH_TRUST_HOST` ni `AUTH_URL` en Vercel (ni `TRUST_PROXY`: Vercel ya entrega la IP
+real del visitante al límite de intentos de inicio de sesión).
+
+**Para un negocio real** pon `DEMO_ENABLED=false` **y** `SEED_ADMIN_PASSWORD` y
+`SEED_STAFF_PASSWORD` (contraseñas propias) **antes del primer despliegue**. Con la demo apagada:
+no hay botón "Try the demo", el cron no reinicia nada, la carga inicial no crea la cuenta demo (y
+borra una que exista), una cuenta con rol Demo no puede entrar aunque conozca la contraseña, y la
+carga inicial se niega a ejecutarse (el build falla con un mensaje claro) si falta alguna de las dos
+contraseñas, para no dejar las contraseñas publicadas en el README.
+
+Con la demo encendida, las tres cuentas sembradas son **compartidas**: nadie, ni el admin, puede
+borrarlas ni cambiarles el rol, la contraseña o el email, para que ningún visitante bloquee los
+accesos publicados.
 
 ---
 
@@ -242,7 +256,10 @@ vercel --prod
 
 El build crea y llena un archivo SQLite y lo incluye en cada función; cada instancia trabaja
 sobre una copia en `/tmp`. Es una demo, no una base de datos: los cambios se pierden en cada
-arranque en frío y dos visitantes pueden ver datos distintos (la app muestra un aviso). Para pasar
+arranque en frío y dos visitantes pueden ver datos distintos (la app muestra un aviso). Las fechas
+de los datos no envejecen: si el build se hizo otro día (o hace más de una hora), cada arranque en
+frío vuelve a generar los datos para el momento actual antes de la primera consulta, así que la
+gráfica de 30 días y los movimientos de hoy siempre tienen datos. Para pasar
 a Neon: crea la base (paso 2), añade `DATABASE_URL` y `DATABASE_URL_UNPOOLED`, borra
 `DATABASE_PROVIDER` y vuelve a desplegar:
 

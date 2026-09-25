@@ -5,10 +5,13 @@ import { InsufficientStockError, NotFoundError, ValidationError } from '@/lib/er
 /**
  * THE ONLY CODE PATH THAT CHANGES Product.quantity.
  *
- * Everything that moves stock - the movements form, product creation with opening
- * stock, the seed - goes through applyStockMovement(), always inside
- * prisma.$transaction, so the quantity change, the StockMovement row and the
- * AuditLog row commit or roll back together.
+ * Everything the app does to stock - the movements form, product creation with opening
+ * stock - goes through applyStockMovement(), always inside prisma.$transaction, so the
+ * quantity change, the StockMovement row and the AuditLog row commit or roll back
+ * together. The one exception is the seed (src/lib/seed), which bulk-inserts a
+ * generated history in one transaction and writes each product's final quantity next
+ * to it; the generator simulates that history with nextQuantity() below, and tests
+ * check that every seeded quantity equals the sum of its movements.
  *
  * Concurrency: a decrease is a single conditional UPDATE
  *   UPDATE "Product" SET quantity = quantity - n WHERE id = ? AND quantity >= n AND archived = false

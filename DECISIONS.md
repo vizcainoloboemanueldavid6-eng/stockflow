@@ -137,7 +137,8 @@ Archiving is the soft delete. A movement on an archived product fails with a cle
   alerts: across 120 simulated seed dates the result was 6–8 products at or below reorder level.
 - Traffic grows over the quarter and peaks on Saturdays so the 30-day chart has shape; at least
   three movements are always "today". Dates are relative to the moment the seed runs (server local
-  time).
+  time); the seed's audit row (`system.seed` / `system.demo-reset`) carries that moment, which the
+  SQLite demo uses to tell aged data from fresh data.
 - Product names are generic (no brands); supplier emails use the reserved `.example` domain and
   phones the fictional 555-01xx range; account emails use the reserved `.test` domain.
 - **`npm run db:seed`** wipes business data (products, movements, categories, suppliers, audit
@@ -146,6 +147,13 @@ Archiving is the soft delete. A movement on an archived product fails with a cle
   the three, so a public demo returns to a known state. Both are idempotent and run in one
   transaction. The seeded accounts' passwords are public on purpose; `SEED_ADMIN_PASSWORD` etc.
   override them for a real deployment.
+- **`DEMO_ENABLED=false` is what marks a real deployment**, so the seed treats it that way: it
+  creates no demo account (and deletes a DEMO-role account with the demo email left from an earlier
+  seed; its share of the generated history goes to the staff account), and it **refuses to run**
+  until `SEED_ADMIN_PASSWORD` and `SEED_STAFF_PASSWORD` are set, because the defaults are printed in
+  the README. On Vercel that fails the first build with the message, which is the point: better a
+  failed first deploy than a production admin whose password is on GitHub. With the demo off the
+  seed CLI does not print the passwords either (build logs are not a place for them).
 
 | Role  | Email                  | Password     |
 | ----- | ---------------------- | ------------ |
@@ -179,20 +187,45 @@ For a public demo URL before Neon exists, and for quick local work.
 
 Consequences, accepted for a demo: every cold start begins from the seeded data; two visitors on
 two different instances may see different data; the daily cron resets only the instance it hits.
+
+**Aged data.** The build seeds the file once, and every date in it is relative to that moment, so a
+deployment left alone for a month would show an empty 30-day chart. A runtime copy made by the
+current process whose seed marker is from an earlier day (in `APP_TIME_ZONE`) or over an hour old
+is seeded again for "now" before the app's first query (`src/lib/sqlite-demo.ts`). The gate wraps
+the client: a query extension makes every operation wait, and a proxy makes `$transaction` wait
+_before_ it starts, because a SQLite transaction takes the write lock at `BEGIN` and the re-seed,
+which runs on its own short-lived client, would otherwise wait for it (measured: a second writer
+waited for the whole open transaction). An existing copy is never re-seeded, so local work in
+SQLite mode survives restarts. Cost: about half a second on the first request of a cold instance.
+Why not the instrumentation hook: `next start` awaits `register()`, but the minimal server Vercel
+runs starts it without waiting, so it cannot gate the first request there.
+
+**One connection.** SQLite has one writer at a time for the whole file. With Prisma's default
+pool, 40 simultaneous stock-outs contended for the file lock inside the engine and 32 failed with
+"Socket timeout" (P1008). The SQLite URL now carries `connection_limit=1&socket_timeout=15`, so
+transactions queue in Prisma (up to the 10-second `maxWait`) and each takes milliseconds: the same
+burst gives exactly the expected successes and "not enough stock" answers.
+
+**Scripts and the live copy.** `db:seed` / `db:reset-demo` write the bundled file, which a running
+app never reads again. In SQLite mode they now also seed the copy a running app is using (found by
+the same size-and-mtime name, computed before the seed changes the file), so they work without a
+restart; the next start copies the freshly seeded file anyway.
 A small banner — "Demo environment — data resets periodically" — is shown only in this mode.
 Locally the copy lives in `%TEMP%/stockflow`, is reused across restarts, and is replaced when
 `npm run db:sqlite` rebuilds the file (the copy's name includes the file's size and mtime).
 
 The code must compile against **both** generated clients (the SQLite build type-checks against
-SQLite types). That rules out Postgres-only Prisma features in app code: use `containsText()`
-instead of `mode: 'insensitive'`, avoid `skipDuplicates`, JSON filters and raw SQL.
+SQLite types). That rules out Postgres-only Prisma features in app code: search products with
+`productTextWhere()` (it adds `mode: 'insensitive'` only at runtime on PostgreSQL), avoid
+`skipDuplicates` and JSON filters, and keep raw SQL to provider-specific branches such as the one
+in `productTextWhere()`.
 
 Switching locally: set `DATABASE_PROVIDER` in `.env`, then `npm run db:generate` (PostgreSQL) or
 `npm run db:sqlite` (SQLite) — the Prisma Client is generated for one provider at a time.
 
 ### No Docker here, but `docker-compose.yml` for owners
 
-`docker-compose.yml` runs `postgres:16`. This machine has no Docker, so `npm run db:local` runs a
+`docker-compose.yml` runs `postgres:16-alpine`. This machine has no Docker, so `npm run db:local` runs a
 real PostgreSQL 16 through the `embedded-postgres` package (port 54329, data in `.pg/`, git-
 ignored; `npm run db:local:stop` stops it). All PostgreSQL verification was done against it.
 
@@ -214,7 +247,18 @@ client components (to hide buttons), but **the control is `requirePermission()` 
 
 `userChangeRefusal(actor, target, change)` adds the relational rules a flat matrix cannot express:
 nobody deletes themselves or changes their own role; the last admin cannot be deleted or
-demoted; DEMO can only manage STAFF accounts and cannot grant ADMIN.
+demoted; DEMO can rename STAFF accounts but **changes no roles at all** (turning Staff into Demo
+would take the account out of DEMO's reach and make the published Staff login show Demo powers;
+promoting to Admin was already refused).
+
+**Shared demo accounts.** The README publishes the Admin and Staff passwords too, and ADMIN has no
+DEMO limits, so locking only the DEMO role was not enough: any visitor could sign in as the admin
+and delete the demo user, change the admin password or email, or demote the Staff account. While
+`DEMO_ENABLED` is on, the three seeded accounts (matched by their configured emails,
+`sharedDemoAccount()` in `src/lib/config.ts`) are therefore locked for everyone: no delete, no role
+change, no password reset by an admin, no own password or email change. Renaming stays allowed
+(harmless, and reset daily). Accounts people create are ordinary. With the demo off, the seeded
+accounts are ordinary accounts of a real business.
 
 `requirePermission()` re-reads the user from the database on every request (memoised per request
 with React `cache`), so a role change or a deleted account takes effect immediately instead of
@@ -226,19 +270,41 @@ when the 12-hour JWT expires.
 - Split config: `src/lib/auth.config.ts` is edge-safe (no Prisma/bcrypt) and is all the
   middleware loads; `src/lib/auth.ts` adds the provider. The middleware only checks that a valid
   session cookie exists; guests get a redirect to `/login?callbackUrl=…` (APIs get a 401 JSON).
-- **Rate limiting** lives inside `authorize()`, so it also covers direct POSTs to
-  `/api/auth/callback/credentials`: 5 failed attempts per IP + email in a sliding 15-minute
-  window; success clears the key. Registration: 5 accounts per IP per hour.
-  **Limitation:** the limiter is in memory. On Vercel each serverless instance has its own
-  counters and instances are recycled, so it slows a naive brute-force loop but is not a hard
-  guarantee. The upgrade path is a shared store (Upstash Redis / Vercel KV / a table) behind the
-  same three methods.
+- **Rate limiting** lives inside `authorize()` (`verifyCredentials()` in `src/lib/credentials.ts`),
+  so it also covers direct POSTs to `/api/auth/callback/credentials`: 5 failed attempts per client +
+  email in a sliding 15-minute window; success clears the key. Registration: 5 attempts per client
+  per hour, where an "email already exists" answer counts too (otherwise probing which emails have
+  accounts was free, undoing the login's anti-enumeration work).
+  - **Counted before the check's awaits.** The first version checked, then awaited the database and
+    bcrypt, then recorded a failure: 30 simultaneous guesses all passed the check. `consume()`
+    checks and records in one synchronous step before the first await; success resets the key.
+  - **Which client.** `X-Forwarded-For` is trusted only when a proxy vouches for it: on Vercel
+    (`VERCEL=1`; the platform overwrites the header - first entry) or with `TRUST_PROXY=true` behind
+    a self-hosted reverse proxy (the entry it appended - last). `next start` keeps whatever the
+    client sent, so otherwise every request shares one key: the login limit becomes per email and
+    the registration limit per server. Stricter (someone can hold one email's sign-in for 15
+    minutes), but a rotating fake header no longer buys unlimited guesses.
+  - **The public demo account is exempt** while the demo is on: its password is published and "Try
+    the demo" signs in with it, so limiting it protected nothing and let anyone behind the same
+    address lock the one-click demo for everyone.
+    **Limitation:** the limiter is in memory. On Vercel each serverless instance has its own
+    counters and instances are recycled, so it slows a naive brute-force loop but is not a hard
+    guarantee. The upgrade path is a shared store (Upstash Redis / Vercel KV / a table) behind the
+    same three methods.
 - Unknown emails still pay one bcrypt comparison, so response time does not reveal which emails
   exist. Wrong passwords are not logged as server errors.
 - `callbackUrl` is reduced to a same-host path (Auth.js sends an absolute URL); anything else goes
   to `/dashboard`.
 - `/register` creates **STAFF** users and signs them in. `ALLOW_REGISTRATION=false` closes it
-  (page and action). `DEMO_ENABLED=false` hides "Try the demo" and disables the reset endpoint.
+  (page and action).
+- `DEMO_ENABLED=false` hides "Try the demo", disables the reset endpoint and the "portfolio demo"
+  line of the sign-in page, and **closes the demo account**: `verifyCredentials()` answers a
+  DEMO-role user like a wrong password, and `getCurrentUser()` treats an existing DEMO session as
+  signed out (so a token issued before the switch stops working too). Hiding the button alone left
+  the published demo credentials working through the normal form with near-admin rights.
+- "Try the demo" with no demo account in the database tells the visitor the demo is not available
+  right now and logs the fix (`npm run db:seed`) on the server, instead of showing a developer
+  command to a prospect.
 - `/logout` (GET route) exists for one case: a valid JWT whose user was deleted. A server
   component cannot clear cookies, so the app layout redirects there.
 - Build note: Next prints "A Node.js API is used (CompressionStream…) which is not supported in
@@ -315,7 +381,9 @@ server components render them and functions cannot cross into client components.
 
 ### Products table
 
-- Search (name or SKU, case-insensitive on both databases), category, supplier (plus "No
+- Search (name or SKU, case-insensitive on both databases, `%` and `_` matched literally: Prisma
+  passes `contains` text into `LIKE` unescaped, so PostgreSQL gets them escaped and SQLite, whose
+  `LIKE` has no escape character, matches such text with `instr()`), category, supplier (plus "No
   supplier"), stock status, active/archived, sorting and paging all live in the URL and run in the
   database; the page reads them with `productListQuerySchema`, which never throws. Sort keys are a
   whitelist (`src/lib/list-options.ts`); an out-of-range page shows the last page.
@@ -347,6 +415,12 @@ server components render them and functions cannot cross into client components.
 - The form always asks for a positive number of units. For an adjustment the user picks
   "Remove units" or "Add units", and the form sends the signed delta
   (`movementQuantity()` in `src/lib/movement-form.ts`).
+- After a movement, the "now appears in the low stock alerts" warning shows only when that movement
+  crossed the reorder level; a restock that leaves the product low says it stays in the alerts.
+- Interactive transactions may wait 10 s for a connection and run 15 s (Prisma's defaults, 2 s and
+  5 s, turned a burst of 40 simultaneous stock-outs into P2028 errors). Contention that still
+  happens (P1008, P2028, P2034, "database is locked") is answered with a "busy, nothing was saved,
+  try again" message (`BUSY`, HTTP 503 in route handlers) instead of the generic error.
 - The dialog previews the resulting stock and warns when a stock-out exceeds what is on hand, but
   still sends it: the server is the authority (the figure may have changed since the search) and
   its refusal - "Not enough stock: X available, tried to remove Y." - is shown as an error toast
@@ -359,6 +433,11 @@ server components render them and functions cannot cross into client components.
 - Full CRUD in dialogs; the category form has ten preset swatches (arrow keys move between them),
   a native colour picker and a hex field. Create/edit/delete are ADMIN/DEMO; STAFF sees read-only
   lists.
+- Category names are unique **without regard to case or surrounding spaces** ("audio" next to
+  "Audio" would show as two identical entries in filters and charts). The pre-check reads the
+  categories and compares in code, which works the same on both providers; renaming a category to
+  its own name in another case is allowed. The database index stays case-sensitive, so two
+  simultaneous creates could still both pass, which is acceptable for a list edited by admins.
 - A category or supplier still used by any product (archived ones included) cannot be deleted.
   The dialog explains why and links to those products instead of offering the button; the server
   action refuses the same case with the same explanation, whatever the UI shows. (Suppliers could
@@ -391,7 +470,15 @@ server components render them and functions cannot cross into client components.
 
 Every list has an empty state with an inline SVG and a call to action; three drawings tell "nothing
 here yet" (box), "no match for these filters" (magnifier, with "Clear filters") and "nothing needs
-attention" (check). Every mutation shows a success or error toast and writes an AuditLog row in the
+attention" (check). A product needs a category, so with no categories the products empty state
+links to /categories instead of opening a form whose required field has no options, and the "Add
+product" dialog says the same (or "ask an administrator" for Staff).
+
+Long unbroken text (a pasted link, a 50-letter name) wraps instead of widening a page: the product
+detail fields use `overflow-wrap: anywhere` in a `minmax(0, 1fr)` grid, category labels wrap even
+inside the tables' no-wrap cells, truncated links carry their own `max-width` (browsers ignore it
+on table cells), and the screen-reader tables under the charts are hidden through a wrapper div,
+because a table ignores its own `sr-only` width. Every mutation shows a success or error toast and writes an AuditLog row in the
 same transaction.
 
 ---
@@ -426,8 +513,16 @@ that the real UI never uses. So the e2e test records the real request an admin's
 (`Next-Action` header + serialised arguments) and replays it with the STAFF session cookie, with the
 target id swapped for another deletable record. The server must answer `FORBIDDEN` and the record
 must still exist; the same replay with the admin's cookie deletes it (positive control, which proves
-the replay really reaches the action). The same technique covers DEMO changing its password and the
-register / demo-login actions on the server started with both switches off. An integration test
+the replay really reaches the action). The same technique covers DEMO changing its password (and
+the seeded Admin and Staff accounts, which are shared while the demo is on; the recording comes from
+a freshly registered Staff account) and the register / demo-login actions on the server started
+with both switches off. That closed server also gets the published demo credentials through the
+form and through a direct POST to the Auth.js endpoint, and a demo session cookie issued by the open
+server: all three must be refused.
+
+Registration counts every attempt per client, and `next start` without `TRUST_PROXY` shares one key
+for the whole server, so the suite keeps to three registrations per run (the limit is five an
+hour). An integration test
 (`tests/integration/actions.test.ts`) calls the real actions against the real database with only
 the session mocked, including a session that _claims_ ADMIN for the STAFF account.
 
@@ -558,7 +653,8 @@ src/components/dashboard/     kpi-card
 src/components/reports/       report-exports (CSV download options)
 src/components/settings/      profile-form, password-form, theme-picker, users-section
 src/hooks/                    use-search-params-updater (URL-driven tables), use-product-search
-src/lib/                      auth.ts, auth.config.ts, db.ts, prisma-client.ts, permissions.ts,
+src/lib/                      auth.ts, auth.config.ts, credentials.ts (sign-in check), db.ts,
+                              prisma-client.ts, sqlite-demo.ts, permissions.ts, like.ts,
                               stock.ts, errors.ts, rate-limit.ts, audit.ts, config.ts,
                               constants.ts, navigation.ts, forms.ts, utils.ts,
                               csv.ts, dates.ts, format.ts, metrics.ts, list-options.ts,
@@ -615,7 +711,8 @@ export const deleteSupplier = createAction(
   `(app)/error.tsx`.
 - Server-side tables read their state from URL search params parsed with
   `productListQuerySchema` / `movementListQuerySchema` (they never throw on garbage input).
-- Search with `containsText(q)`; low stock with `lowStockWhere()`; money through `toNumber()`.
+- Search products with `await productTextWhere(q)`; low stock with `lowStockWhere()`; money
+  through `toNumber()`.
 - Client forms: `useForm({ resolver: zodResolver(schema) })` + `<Form>` components, call the
   action, then `applyFieldErrors(form, result.fieldErrors)` and `toast.error(result.error)` /
   `toast.success(...)`.
