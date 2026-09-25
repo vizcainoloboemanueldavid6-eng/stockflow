@@ -4,6 +4,14 @@ Guía paso a paso con los comandos exactos. Todo lo que se usa aquí tiene plan 
 (Neon Free, GitHub, Vercel Hobby). Los comandos funcionan en PowerShell y en Git Bash; cuando la
 sintaxis cambia se muestran las dos versiones.
 
+> **Estado actual (25-sep-2026):** el camino B ya está hecho. El código está en
+> https://github.com/vizcainoloboemanueldavid6-eng/stockflow y la demo pública funciona en
+> **https://stockflow-seven-sage.vercel.app** (proyecto `stockflow` de tu cuenta de Vercel, con
+> `DATABASE_PROVIDER=sqlite`, `AUTH_SECRET`, `CRON_SECRET` y `APP_TIME_ZONE=America/Bogota`).
+> La carpeta local ya está vinculada a ese proyecto: para publicar cambios basta con
+> `git push` y después `vercel --prod` desde la carpeta del proyecto. Para pasar a datos
+> persistentes sigue los pasos 2, 4, 5 y 6 (crear Neon, cambiar variables y volver a desplegar).
+
 Hay dos caminos:
 
 - **A. Vercel + Neon (recomendado):** los datos persisten. Pasos 1 a 6.

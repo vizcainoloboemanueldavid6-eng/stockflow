@@ -5,6 +5,10 @@ categories, reports and users, with role-based access and a one-click demo accou
 Next.js 15 (App Router, Server Actions), Prisma, PostgreSQL, Auth.js v5, Tailwind CSS and
 shadcn/ui.
 
+**Live demo:** https://stockflow-seven-sage.vercel.app — click **Try the demo** on the sign-in
+page. It runs in the zero-config SQLite demo mode (see [Deploying to Vercel](#deploying-to-vercel)),
+so anything you change resets on its own.
+
 > **Demo project.** StockFlow is a portfolio piece. The shop, its 60 products, 5 suppliers and
 > 400 stock movements are generated sample data: generic product names, no real brands, supplier
 > emails on the reserved `.example` domain and phone numbers in the fictional 555-01xx range.

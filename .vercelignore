@@ -1,0 +1,19 @@
+# Keep `vercel deploy` uploads to the tracked source: Vercel installs and builds on its side.
+node_modules
+.next
+out
+.pg
+prisma/sqlite
+*.db
+*.db-journal
+.env
+.env.*
+!.env.example
+coverage
+playwright-report
+test-results
+blob-report
+lighthouse
+.review-tmp
+*.zip
+*.tsbuildinfo
