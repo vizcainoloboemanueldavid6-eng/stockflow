@@ -47,10 +47,12 @@ export function LowStockTable({
       <TableBody>
         {rows.map((row) => (
           <TableRow key={row.id}>
-            <TableCell className="max-w-[12rem] sm:max-w-[16rem] xl:max-w-xs">
+            <TableCell>
+              {/* The width cap sits on the link, not the cell: browsers ignore max-width
+                  on table cells, and one long unbroken name would widen the table. */}
               <Link
                 href={`/products/${row.id}`}
-                className="block truncate font-medium text-link underline-offset-4 hover:underline"
+                className="block max-w-[10rem] truncate font-medium text-link underline-offset-4 hover:underline sm:max-w-[16rem] xl:max-w-xs"
               >
                 {row.name}
               </Link>
@@ -68,7 +70,7 @@ export function LowStockTable({
             <TableCell className="hidden sm:table-cell">
               <StockStatusBadge status={row.status} />
             </TableCell>
-            <TableCell className="hidden text-muted-foreground xl:table-cell">
+            <TableCell className="hidden max-w-[14rem] whitespace-normal text-muted-foreground [overflow-wrap:anywhere] xl:table-cell">
               {row.supplierName ?? '—'}
             </TableCell>
             {canRestock && (

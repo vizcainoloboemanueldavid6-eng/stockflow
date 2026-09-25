@@ -94,25 +94,29 @@ export function MovementTrendChart({
           />
         </LineChart>
       </div>
-      <table className="sr-only">
-        <caption>Units in and out per day</caption>
-        <thead>
-          <tr>
-            <th scope="col">Day</th>
-            <th scope="col">Stock in</th>
-            <th scope="col">Stock out</th>
-          </tr>
-        </thead>
-        <tbody>
-          {data.map((point) => (
-            <tr key={point.day}>
-              <th scope="row">{point.label}</th>
-              <td>{point.in}</td>
-              <td>{point.out}</td>
+      {/* The wrapper, not the table, is visually hidden: a table grows to fit its
+          longest row whatever its own width says, and would widen the page. */}
+      <div className="sr-only">
+        <table>
+          <caption>Units in and out per day</caption>
+          <thead>
+            <tr>
+              <th scope="col">Day</th>
+              <th scope="col">Stock in</th>
+              <th scope="col">Stock out</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {data.map((point) => (
+              <tr key={point.day}>
+                <th scope="row">{point.label}</th>
+                <td>{point.in}</td>
+                <td>{point.out}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </figure>
   );
 }

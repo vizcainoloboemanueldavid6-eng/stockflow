@@ -93,17 +93,21 @@ export function HorizontalBarChart({
           </Bar>
         </BarChart>
       </div>
-      <table className="sr-only">
-        <caption>{caption}</caption>
-        <tbody>
-          {data.map((datum) => (
-            <tr key={datum.key}>
-              <th scope="row">{datum.label}</th>
-              <td>{valueFormatter(datum.value)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      {/* The wrapper, not the table, is visually hidden: a table grows to fit its
+          longest row whatever its own width says, and would widen the page. */}
+      <div className="sr-only">
+        <table>
+          <caption>{caption}</caption>
+          <tbody>
+            {data.map((datum) => (
+              <tr key={datum.key}>
+                <th scope="row">{datum.label}</th>
+                <td>{valueFormatter(datum.value)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </figure>
   );
 }
