@@ -1,6 +1,6 @@
 import bcrypt from 'bcryptjs';
 import type { PrismaClient } from '@prisma/client';
-import { seedAccounts } from '@/lib/config';
+import { demoEnabled, seedAccounts } from '@/lib/config';
 import { SEED_CATEGORIES, SEED_SUPPLIERS } from './catalog';
 import { generateSeedData, type SeedUserKey } from './generate';
 
@@ -29,19 +29,40 @@ export type SeedSummary = {
   removedUsers: number;
 };
 
+/**
+ * The accounts to create. With the public demo on: admin, staff and demo, with their
+ * published default passwords unless overridden. With DEMO_ENABLED=false (a real
+ * deployment): no demo account, and the admin and staff passwords must come from
+ * SEED_ADMIN_PASSWORD / SEED_STAFF_PASSWORD - the defaults are printed in the README.
+ */
+export function accountsToSeed(env: Record<string, string | undefined> = process.env) {
+  const accounts = seedAccounts();
+  if (demoEnabled()) return accounts;
+
+  const missing = ['SEED_ADMIN_PASSWORD', 'SEED_STAFF_PASSWORD'].filter((name) => !env[name]);
+  if (missing.length) {
+    throw new Error(
+      `DEMO_ENABLED=false marks a real deployment, but ${missing.join(' and ')} ` +
+        `${missing.length > 1 ? 'are' : 'is'} not set, so the seeded accounts would get the ` +
+        'passwords published in the README. Set both variables and run the seed again.',
+    );
+  }
+  const { admin, staff } = accounts;
+  return { admin, staff };
+}
+
 export async function seedDatabase(
   prisma: PrismaClient,
   { mode, now = new Date() }: { mode: SeedMode; now?: Date },
 ): Promise<SeedSummary> {
-  const accounts = seedAccounts();
+  const accounts: Partial<ReturnType<typeof seedAccounts>> = accountsToSeed();
+  const keys = (Object.keys(accounts) as SeedUserKey[]).filter((key) => accounts[key]);
   const { products, movements } = generateSeedData({ now });
 
   // Hash outside the transaction: bcrypt is CPU work, not database work.
   const hashes = Object.fromEntries(
     await Promise.all(
-      (Object.keys(accounts) as SeedUserKey[]).map(
-        async (key) => [key, await bcrypt.hash(accounts[key].password, 10)] as const,
-      ),
+      keys.map(async (key) => [key, await bcrypt.hash(accounts[key]!.password, 10)] as const),
     ),
   ) as Record<SeedUserKey, string>;
 
@@ -53,9 +74,9 @@ export async function seedDatabase(
       await tx.category.deleteMany();
       await tx.supplier.deleteMany();
 
-      const userIds = {} as Record<SeedUserKey, string>;
-      for (const key of Object.keys(accounts) as SeedUserKey[]) {
-        const account = accounts[key];
+      const userIds = {} as Partial<Record<SeedUserKey, string>>;
+      for (const key of keys) {
+        const account = accounts[key]!;
         const user = await tx.user.upsert({
           where: { email: account.email },
           create: {
@@ -74,6 +95,12 @@ export async function seedDatabase(
       if (mode === 'reset-demo') {
         const removed = await tx.user.deleteMany({
           where: { id: { notIn: Object.values(userIds) } },
+        });
+        removedUsers = removed.count;
+      } else if (!accounts.demo) {
+        // Demo switched off: a demo account left from an earlier seed must not survive.
+        const removed = await tx.user.deleteMany({
+          where: { role: 'DEMO', email: seedAccounts().demo.email },
         });
         removedUsers = removed.count;
       }
@@ -130,7 +157,8 @@ export async function seedDatabase(
             type: m.type,
             quantity: m.quantity,
             reason: m.reason,
-            userId: userIds[m.user],
+            // Without a demo account its share of the history goes to the staff account.
+            userId: userIds[m.user] ?? userIds.staff,
             createdAt: m.createdAt,
           };
         }),

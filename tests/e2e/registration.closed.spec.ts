@@ -1,4 +1,5 @@
 import {
+  ACCOUNTS,
   OPEN_BASE_URL,
   expect,
   recordServerAction,
@@ -26,6 +27,59 @@ test('with DEMO_ENABLED=false there is no "Try the demo" button', async ({ page 
   await page.goto('/login');
   await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
   await expect(page.getByTestId('demo-login')).toHaveCount(0);
+  // Nor a "this is a fictional demo" note beside the form.
+  await expect(page.getByText('Portfolio demo with sample data')).toHaveCount(0);
+});
+
+test('with DEMO_ENABLED=false the published demo credentials do not sign in', async ({ page }) => {
+  // The database is the same seeded one the open server uses, demo account included:
+  // the switch alone must close it, through the ordinary form...
+  await page.goto('/login');
+  await page.getByLabel('Email').fill(ACCOUNTS.demo.email);
+  await page.getByLabel('Password', { exact: true }).fill(ACCOUNTS.demo.password);
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(
+    page.getByRole('alert').filter({ hasText: 'Invalid email or password.' }),
+  ).toBeVisible();
+  await expect(page).toHaveURL(/\/login/);
+
+  // ...and through a direct POST to the Auth.js credentials endpoint.
+  const csrf = await (await page.request.get('/api/auth/csrf')).json();
+  const direct = await page.request.post('/api/auth/callback/credentials', {
+    form: {
+      csrfToken: csrf.csrfToken,
+      email: ACCOUNTS.demo.email,
+      password: ACCOUNTS.demo.password,
+      callbackUrl: '/dashboard',
+    },
+    maxRedirects: 0,
+  });
+  expect(direct.headers()['location'] ?? '').toContain('error=CredentialsSignin');
+  const session = await (await page.request.get('/api/auth/session')).json();
+  expect(session?.user ?? null).toBeNull();
+});
+
+test('with DEMO_ENABLED=false a demo session opened elsewhere stops working', async ({
+  browser,
+}) => {
+  // A token signed with the same secret, for the DEMO account (from the open server).
+  const context = await browser.newContext({ baseURL: OPEN_BASE_URL });
+  const open = await context.newPage();
+  await open.goto('/login');
+  await open.getByTestId('demo-login').click();
+  await open.waitForURL('**/dashboard');
+  const cookies = await context.cookies();
+  await context.close();
+
+  const closedBaseURL = test.info().project.use.baseURL!;
+  const closed = await browser.newContext({ baseURL: closedBaseURL });
+  await closed.addCookies(cookies);
+  const page = await closed.newPage();
+  await page.goto('/dashboard');
+  await page.waitForURL('**/login**');
+  const api = await page.request.get('/api/search?q=usb');
+  expect(api.status()).toBe(401);
+  await closed.close();
 });
 
 test('the register and demo actions are refused when called directly', async ({ browser }) => {

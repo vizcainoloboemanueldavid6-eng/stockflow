@@ -5,8 +5,8 @@
  * Flags: --reset-demo, --if-empty (skip when any user exists; used by the Vercel build)
  */
 import { createPrismaClient, databaseProvider } from '../src/lib/prisma-client';
-import { seedAccounts } from '../src/lib/config';
-import { isDatabaseEmpty, seedDatabase } from '../src/lib/seed';
+import { demoEnabled } from '../src/lib/config';
+import { accountsToSeed, isDatabaseEmpty, seedDatabase } from '../src/lib/seed';
 
 async function main() {
   const args = new Set(process.argv.slice(2));
@@ -36,10 +36,12 @@ async function main() {
     console.log(`  ${summary.movements} stock movements over the last 90 days`);
     console.log(`  ${summary.lowStock} products at or below their reorder level`);
 
-    const accounts = seedAccounts();
+    // The demo passwords are public; real ones (DEMO_ENABLED=false) never go to a log.
+    const publicPasswords = demoEnabled();
     console.log('\nSign in with:');
-    for (const account of Object.values(accounts)) {
-      console.log(`  ${account.role.padEnd(5)}  ${account.email.padEnd(24)}  ${account.password}`);
+    for (const account of Object.values(accountsToSeed())) {
+      const password = publicPasswords ? account.password : '(password from your SEED_* variable)';
+      console.log(`  ${account.role.padEnd(5)}  ${account.email.padEnd(24)}  ${password}`);
     }
   } finally {
     await prisma.$disconnect();

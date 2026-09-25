@@ -49,7 +49,19 @@ export class SlidingWindowRateLimiter {
     return { allowed: false, retryAfterMs: Math.max(0, oldest + this.options.windowMs - now) };
   }
 
-  /** Records one attempt (for login: one failed attempt). */
+  /**
+   * Checks and records one attempt in a single synchronous step, and returns the check.
+   * Call it BEFORE any await. A check() ... await ... hit() sequence lets a burst of
+   * simultaneous requests all pass check() before the first hit() lands, so the limit
+   * would only bound attempts per round trip instead of per window.
+   */
+  consume(key: string): RateLimitCheck {
+    const result = this.check(key);
+    if (result.allowed) this.hit(key);
+    return result;
+  }
+
+  /** Records one attempt without checking. */
   hit(key: string): void {
     const now = this.now();
     const recent = this.recent(key, now);
@@ -88,15 +100,36 @@ export const registerRateLimiter = new SlidingWindowRateLimiter({
   windowMs: 60 * 60_000,
 });
 
+/** Key shared by every request when no trusted proxy tells us the client's address. */
+export const UNTRUSTED_CLIENT = 'direct';
+
 /**
- * Best-effort client IP from proxy headers. Vercel sets x-forwarded-for with the
- * real client first; locally it is usually absent or a loopback address.
+ * The client address used as a rate-limit key.
+ *
+ * X-Forwarded-For is only as trustworthy as the proxy that wrote it. `next start`
+ * fills it in only when the request does not already carry one, so a client talking
+ * to a self-hosted server directly can put any value there - a fresh rate-limit
+ * bucket for every request. The header is therefore trusted only:
+ *   - on Vercel (VERCEL=1), whose edge network overwrites it with the real client
+ *     address: the first entry;
+ *   - with TRUST_PROXY=true, for a self-hosted server behind a reverse proxy that
+ *     appends the address it saw (nginx `proxy_add_x_forwarded_for`, Caddy, Traefik):
+ *     the last entry, the only one the proxy vouches for.
+ * Otherwise every request shares one key, so the login limit applies per email and
+ * the registration limit per server - stricter, but impossible to dodge.
  */
-export function clientIp(headers: Headers | null | undefined): string {
-  const forwarded = headers?.get('x-forwarded-for');
-  if (forwarded) {
-    const first = forwarded.split(',')[0]?.trim();
-    if (first) return first;
+export function clientIp(
+  headers: Headers | null | undefined,
+  env: Record<string, string | undefined> = process.env,
+): string {
+  const forwarded = (headers?.get('x-forwarded-for') ?? '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  const realIp = headers?.get('x-real-ip')?.trim();
+  if (env.VERCEL === '1') return forwarded[0] || realIp || UNTRUSTED_CLIENT;
+  if (env.TRUST_PROXY?.trim().toLowerCase() === 'true') {
+    return forwarded.at(-1) || realIp || UNTRUSTED_CLIENT;
   }
-  return headers?.get('x-real-ip')?.trim() || 'unknown';
+  return UNTRUSTED_CLIENT;
 }

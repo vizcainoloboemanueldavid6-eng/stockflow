@@ -91,10 +91,12 @@ export async function loginAsDemo(): Promise<AuthFailure | null> {
     select: { id: true },
   });
   if (!exists) {
+    // A visitor reads this, not the developer: the fix (npm run db:seed) is in the server log.
+    console.warn(`[auth] "Try the demo": no account ${demo.email}; run npm run db:seed.`);
     return {
       ok: false,
       code: 'NOT_FOUND',
-      error: 'The demo account is not set up yet. Run `npm run db:seed` first.',
+      error: 'The demo is not available right now. Please try again in a few minutes.',
     };
   }
   return credentialsSignIn(demo.email, demo.password, HOME_PATH);
@@ -106,10 +108,7 @@ export async function register(input: RegisterInput): Promise<AuthFailure | null
     return { ok: false, code: 'FORBIDDEN', error: 'Registration is disabled on this deployment.' };
   }
   try {
-    const ip = clientIp(await headers());
-    const limit = registerRateLimiter.check(ip);
-    if (!limit.allowed) throw new RateLimitError(limit.retryAfterMs / 1000);
-
+    // Invalid input never reaches the database, so it is answered without counting.
     const parsed = registerSchema.safeParse(input);
     if (!parsed.success) {
       return {
@@ -121,6 +120,12 @@ export async function register(input: RegisterInput): Promise<AuthFailure | null
     }
     const { name, email, password } = parsed.data;
 
+    // Every attempt that reaches the database counts, and is counted before the first
+    // await: an "already exists" answer tells the caller that the email has an account,
+    // so probing addresses must be as limited as creating accounts.
+    const limit = registerRateLimiter.consume(clientIp(await headers()));
+    if (!limit.allowed) throw new RateLimitError(limit.retryAfterMs / 1000);
+
     const taken = await prisma.user.findUnique({ where: { email }, select: { id: true } });
     if (taken) {
       return {
@@ -131,7 +136,6 @@ export async function register(input: RegisterInput): Promise<AuthFailure | null
       };
     }
 
-    registerRateLimiter.hit(ip);
     const passwordHash = await hashPassword(password);
     await prisma.$transaction(async (tx) => {
       const user = await tx.user.create({

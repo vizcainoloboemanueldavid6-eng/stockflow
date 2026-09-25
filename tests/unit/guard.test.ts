@@ -53,6 +53,22 @@ describe('requirePermission', () => {
     signInAs('STAFF');
     await expect(requirePermission('movement:create')).resolves.toMatchObject({ role: 'STAFF' });
   });
+
+  it('with DEMO_ENABLED=false an existing DEMO session counts as signed out', async () => {
+    vi.stubEnv('DEMO_ENABLED', 'false');
+    try {
+      signInAs('DEMO');
+      await expect(requirePermission('product:view')).rejects.toMatchObject({
+        code: 'UNAUTHORIZED',
+      });
+      signInAs('ADMIN');
+      await expect(requirePermission('product:view')).resolves.toMatchObject({ role: 'ADMIN' });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    signInAs('DEMO');
+    await expect(requirePermission('product:view')).resolves.toMatchObject({ role: 'DEMO' });
+  });
 });
 
 describe('createAction', () => {

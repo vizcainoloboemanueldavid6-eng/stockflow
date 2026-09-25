@@ -1,5 +1,6 @@
 import type { PrismaClient } from '@prisma/client';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import bcrypt from 'bcryptjs';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { InsufficientStockError } from '@/lib/errors';
 import { createPrismaClient, databaseProvider } from '@/lib/prisma-client';
 import { seedDatabase } from '@/lib/seed';
@@ -219,4 +220,41 @@ describe('applyStockMovement against the real database', () => {
       ).rejects.toThrow();
     },
   );
+});
+
+describe('seed with DEMO_ENABLED=false (a real deployment)', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  afterAll(async () => {
+    // Leave the database as the other suites expect it: the public demo data set.
+    await seedDatabase(prisma, { mode: 'reset-demo' });
+  });
+
+  it('refuses to give the seeded accounts the passwords published in the README', async () => {
+    vi.stubEnv('DEMO_ENABLED', 'false');
+    vi.stubEnv('SEED_ADMIN_PASSWORD', '');
+    vi.stubEnv('SEED_STAFF_PASSWORD', 'Private#Staff2026');
+    await expect(seedDatabase(prisma, { mode: 'seed' })).rejects.toThrow(
+      /SEED_ADMIN_PASSWORD is not set/,
+    );
+    // Nothing was written: the demo account from the earlier seed is still there.
+    expect(await prisma.user.count({ where: { role: 'DEMO' } })).toBe(1);
+  });
+
+  it('creates no demo account, removes an existing one and keeps the history whole', async () => {
+    vi.stubEnv('DEMO_ENABLED', 'false');
+    vi.stubEnv('SEED_ADMIN_PASSWORD', 'Private#Admin2026');
+    vi.stubEnv('SEED_STAFF_PASSWORD', 'Private#Staff2026');
+    const summary = await seedDatabase(prisma, { mode: 'seed' });
+    expect(summary.users).toBe(2);
+    const users = await prisma.user.findMany({ select: { role: true, passwordHash: true } });
+    expect(users.map((u) => u.role).sort()).toEqual(['ADMIN', 'STAFF']);
+    const admin = await prisma.user.findFirstOrThrow({ where: { role: 'ADMIN' } });
+    expect(await bcrypt.compare('Private#Admin2026', admin.passwordHash)).toBe(true);
+    expect(await bcrypt.compare('Admin#2026', admin.passwordHash)).toBe(false);
+    expect(await prisma.stockMovement.count()).toBe(400);
+    expect(await prisma.stockMovement.count({ where: { userId: null } })).toBe(0);
+  });
 });

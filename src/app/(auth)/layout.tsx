@@ -2,6 +2,7 @@ import { ArrowLeftRight, ChartColumn, ShieldCheck, TriangleAlert } from 'lucide-
 import { Logo } from '@/components/brand/logo';
 import { DemoBanner } from '@/components/layout/demo-banner';
 import { ThemeToggle } from '@/components/theme/theme-toggle';
+import { demoEnabled } from '@/lib/config';
 
 const FEATURES = [
   {
@@ -49,9 +50,11 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
               ))}
             </ul>
           </div>
-          <p className="relative text-xs text-blue-100/60">
-            Portfolio demo with sample data. Products, suppliers and people are fictional.
-          </p>
+          {demoEnabled() && (
+            <p className="relative text-xs text-blue-100/60">
+              Portfolio demo with sample data. Products, suppliers and people are fictional.
+            </p>
+          )}
         </aside>
 
         <main className="relative flex flex-col px-4 py-6 sm:px-8">

@@ -3,9 +3,9 @@ import bcrypt from 'bcryptjs';
 import NextAuth, { CredentialsSignin } from 'next-auth';
 import Credentials from 'next-auth/providers/credentials';
 import { authConfig } from '@/lib/auth.config';
-import { prisma } from '@/lib/db';
-import { clientIp, loginRateLimiter } from '@/lib/rate-limit';
-import { loginSchema } from '@/lib/validations/auth';
+import { BCRYPT_COST, verifyCredentials } from '@/lib/credentials';
+
+export { BCRYPT_COST };
 
 /** Error codes surfaced to the login form (see src/lib/actions/auth.ts). */
 export class InvalidCredentialsError extends CredentialsSignin {
@@ -13,15 +13,6 @@ export class InvalidCredentialsError extends CredentialsSignin {
 }
 export class TooManyAttemptsError extends CredentialsSignin {
   code = 'rate_limited';
-}
-
-export const BCRYPT_COST = 10;
-
-let timingHash: string | undefined;
-/** Hash compared against when the email is unknown, so both paths cost one bcrypt check. */
-function equalizerHash(): string {
-  timingHash ??= bcrypt.hashSync('stockflow-timing-equalizer', BCRYPT_COST);
-  return timingHash;
 }
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
@@ -39,29 +30,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         email: { label: 'Email', type: 'email' },
         password: { label: 'Password', type: 'password' },
       },
+      // Runs for the login form and for direct POSTs to /api/auth/callback/credentials
+      // alike, so the rate limit and the demo switch cannot be bypassed.
       async authorize(raw, request) {
-        const parsed = loginSchema.safeParse(raw);
-        if (!parsed.success) throw new InvalidCredentialsError();
-        const { email, password } = parsed.data;
-
-        // Rate limit failed attempts per IP + email. This runs inside authorize()
-        // so it also covers direct POSTs to /api/auth/callback/credentials.
-        const key = `${clientIp(request?.headers)}|${email}`;
-        if (!loginRateLimiter.check(key).allowed) throw new TooManyAttemptsError();
-
-        const user = await prisma.user.findUnique({
-          where: { email },
-          select: { id: true, name: true, email: true, role: true, passwordHash: true },
-        });
-        const valid = await bcrypt.compare(password, user?.passwordHash ?? equalizerHash());
-
-        if (!user || !valid) {
-          loginRateLimiter.hit(key);
-          throw new InvalidCredentialsError();
-        }
-
-        loginRateLimiter.reset(key);
-        return { id: user.id, name: user.name, email: user.email, role: user.role };
+        const result = await verifyCredentials(raw, request?.headers);
+        if (result.ok) return result.user;
+        if (result.reason === 'rate_limited') throw new TooManyAttemptsError();
+        throw new InvalidCredentialsError();
       },
     }),
   ],

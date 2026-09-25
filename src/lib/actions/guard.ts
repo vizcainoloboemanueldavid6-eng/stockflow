@@ -4,6 +4,7 @@ import { redirect, unstable_rethrow } from 'next/navigation';
 import { cache } from 'react';
 import type { z } from 'zod';
 import { auth } from '@/lib/auth';
+import { demoEnabled } from '@/lib/config';
 import type { Role } from '@/lib/constants';
 import { prisma } from '@/lib/db';
 import {
@@ -29,15 +30,19 @@ export type CurrentUser = { id: string; name: string; email: string; role: Role 
  * The signed-in user, re-read from the database (memoised per request).
  * Reading the row instead of trusting the JWT means a role change or a deleted
  * account takes effect on the very next request, not when the token expires.
+ * With DEMO_ENABLED=false a DEMO-role account counts as signed out, so a session
+ * opened before the switch was flipped stops working too (the layout then clears it).
  */
 export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
   const session = await auth();
   const id = session?.user?.id;
   if (!id) return null;
-  return prisma.user.findUnique({
+  const user = await prisma.user.findUnique({
     where: { id },
     select: { id: true, name: true, email: true, role: true },
   });
+  if (user?.role === 'DEMO' && !demoEnabled()) return null;
+  return user;
 });
 
 /** Throws UnauthorizedError when nobody is signed in. */
