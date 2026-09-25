@@ -1,5 +1,6 @@
 import 'server-only';
 import type { Prisma, PrismaClient } from '@prisma/client';
+import { escapeLikePattern, hasLikeWildcard } from './like';
 import { createPrismaClient, databaseProvider } from './prisma-client';
 
 /**
@@ -18,15 +19,31 @@ if (process.env.NODE_ENV !== 'production') globalForPrisma.__stockflowPrisma = p
 export const isSqlite = databaseProvider() === 'sqlite';
 
 /**
- * Case-insensitive "contains" filter that works on both providers. PostgreSQL
- * needs `mode: 'insensitive'`; SQLite's LIKE is already case-insensitive and its
- * generated client has no `mode` field at all, so the property is added only at
- * runtime and the static type stays the portable subset.
+ * Products whose name or SKU contains `query`, case-insensitively, with `%` and `_`
+ * taken literally, on both providers (the search box, the CSV export, Ctrl+K).
+ *
+ * - PostgreSQL: ILIKE (`mode: 'insensitive'`) with the wildcards escaped. SQLite's
+ *   generated client has no `mode` field at all, so the property is added only at
+ *   runtime and the static type stays the portable subset.
+ * - SQLite: LIKE is already case-insensitive (ASCII) but has no default escape
+ *   character, so text with a wildcard in it is matched with instr() instead, in one
+ *   small raw query whose ids feed the Prisma filter. Plain text keeps using LIKE.
  */
-export function containsText(query: string): Prisma.StringFilter {
-  return (
-    isSqlite ? { contains: query } : { contains: query, mode: 'insensitive' }
-  ) as Prisma.StringFilter;
+export async function productTextWhere(query: string): Promise<Prisma.ProductWhereInput> {
+  if (!isSqlite) {
+    const filter = {
+      contains: escapeLikePattern(query),
+      mode: 'insensitive',
+    } as Prisma.StringFilter;
+    return { OR: [{ name: filter }, { sku: filter }] };
+  }
+  if (!hasLikeWildcard(query)) {
+    return { OR: [{ name: { contains: query } }, { sku: { contains: query } }] };
+  }
+  const rows = await prisma.$queryRaw<{ id: string }[]>`
+    SELECT "id" FROM "Product"
+    WHERE instr(lower("name"), lower(${query})) > 0 OR instr(lower("sku"), lower(${query})) > 0`;
+  return { id: { in: rows.map((row) => row.id) } };
 }
 
 /** Products at or below their reorder level (includes out of stock). Column-to-column comparison. */

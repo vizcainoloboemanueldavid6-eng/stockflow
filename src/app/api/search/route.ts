@@ -1,5 +1,5 @@
 import { errorResponse, requirePermission } from '@/lib/actions/guard';
-import { containsText, prisma } from '@/lib/db';
+import { prisma, productTextWhere } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,7 +14,7 @@ export async function GET(request: Request) {
     if (!q) return Response.json({ products: [] });
 
     const products = await prisma.product.findMany({
-      where: { archived: false, OR: [{ name: containsText(q) }, { sku: containsText(q) }] },
+      where: { AND: [{ archived: false }, await productTextWhere(q)] },
       select: { id: true, sku: true, name: true, quantity: true, reorderLevel: true },
       orderBy: { name: 'asc' },
       take: 8,

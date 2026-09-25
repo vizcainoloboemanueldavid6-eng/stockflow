@@ -3,7 +3,7 @@ import type { Prisma } from '@prisma/client';
 import { cache } from 'react';
 import { type StockStatus, stockStatus } from '@/lib/constants';
 import { appTimeZone } from '@/lib/dates';
-import { containsText, prisma, toNumber } from '@/lib/db';
+import { prisma, productTextWhere, toNumber } from '@/lib/db';
 import { formatDate } from '@/lib/format';
 import { productOrderBy } from '@/lib/list-options';
 import { lineValueCents } from '@/lib/metrics';
@@ -94,12 +94,10 @@ export type ProductFilters = Pick<
  * reference, so filtering and counting happen in the database, page by page.
  * `supplier=none` selects products without a supplier.
  */
-export function productWhere(filters: ProductFilters): Prisma.ProductWhereInput {
+export async function productWhere(filters: ProductFilters): Promise<Prisma.ProductWhereInput> {
   const and: Prisma.ProductWhereInput[] = [];
   if (filters.archived !== 'all') and.push({ archived: filters.archived === 'archived' });
-  if (filters.q) {
-    and.push({ OR: [{ name: containsText(filters.q) }, { sku: containsText(filters.q) }] });
-  }
+  if (filters.q) and.push(await productTextWhere(filters.q));
   if (filters.category) and.push({ categoryId: filters.category });
   if (filters.supplier === 'none') and.push({ supplierId: null });
   else if (filters.supplier) and.push({ supplierId: filters.supplier });
@@ -122,7 +120,7 @@ export type ProductList = {
 };
 
 export async function listProducts(query: ProductListQuery): Promise<ProductList> {
-  const where = productWhere(query);
+  const where = await productWhere(query);
   const total = await prisma.product.count({ where });
   const { page, pageCount, skip, take } = paginate(total, query.page, query.pageSize);
   const products = await prisma.product.findMany({
@@ -149,7 +147,7 @@ export async function findProductsForExport(
   dir: 'asc' | 'desc' = 'asc',
 ) {
   const products = await prisma.product.findMany({
-    where: productWhere(filters),
+    where: await productWhere(filters),
     orderBy: productOrderBy(sort, dir),
     select: productSelect,
   });

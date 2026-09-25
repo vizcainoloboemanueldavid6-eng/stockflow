@@ -26,6 +26,8 @@ const products = await import('@/lib/actions/products');
 const catalog = await import('@/lib/actions/catalog');
 const users = await import('@/lib/actions/users');
 const account = await import('@/lib/actions/account');
+const { listProducts, findProductsForExport } = await import('@/lib/queries/products');
+const { productListQuerySchema } = await import('@/lib/validations/product');
 
 type Seeded = { id: string; role: string; passwordHash: string };
 let admin: Seeded;
@@ -166,5 +168,44 @@ describe('ADMIN (positive control)', () => {
       'supplier.delete',
     ]);
     for (const row of actions) expect(row.userId).toBe(admin.id);
+  });
+});
+
+describe('product search takes % and _ literally', () => {
+  const probes = [
+    { sku: 'SRCH-PCT', name: 'Search probe 50% off' },
+    { sku: 'SRCH-UND', name: 'Search probe snake_case' },
+  ];
+
+  beforeAll(async () => {
+    const category = await prisma.category.findFirstOrThrow({ where: { name: 'Audio' } });
+    await prisma.product.createMany({
+      data: probes.map((p) => ({ ...p, categoryId: category.id, unitCost: 1, salePrice: 2 })),
+    });
+  });
+
+  afterAll(async () => {
+    await prisma.product.deleteMany({ where: { sku: { in: probes.map((p) => p.sku) } } });
+  });
+
+  const search = async (q: string) =>
+    (await listProducts(productListQuerySchema.parse({ q, pageSize: '100' }))).rows.map(
+      (row) => row.sku,
+    );
+
+  it('matches the characters, not "anything" (list, CSV export)', async () => {
+    // Before the fix both matched all 62 products: LIKE read them as wildcards.
+    expect(await search('%')).toEqual(['SRCH-PCT']);
+    expect(await search('_')).toEqual(['SRCH-UND']);
+    expect(await search('50% OFF')).toEqual(['SRCH-PCT']);
+    expect(await search('e_c')).toEqual(['SRCH-UND']);
+    expect(await search(String.fromCharCode(92))).toEqual([]); // a lone backslash
+    const csv = await findProductsForExport({ q: '%', archived: 'active' });
+    expect(csv.map((row) => row.sku)).toEqual(['SRCH-PCT']);
+  });
+
+  it('is still a case-insensitive substring search', async () => {
+    expect((await search('SEARCH PROBE')).sort()).toEqual(['SRCH-PCT', 'SRCH-UND']);
+    expect(await search('srch-und')).toEqual(['SRCH-UND']);
   });
 });
