@@ -1,8 +1,18 @@
-import type { PrismaClient } from '@prisma/client';
+import { copyFileSync, mkdtempSync, rmSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { InsufficientStockError } from '@/lib/errors';
-import { createPrismaClient, databaseProvider } from '@/lib/prisma-client';
+import { appTimeZone, dayKey, startOfDay } from '@/lib/dates';
+import {
+  bundledSqlitePath,
+  createPrismaClient,
+  databaseProvider,
+  runtimeSqliteCopyPath,
+  sqliteUrl,
+} from '@/lib/prisma-client';
 import { seedDatabase } from '@/lib/seed';
 import { applyStockMovement } from '@/lib/stock';
 
@@ -256,5 +266,55 @@ describe('seed with DEMO_ENABLED=false (a real deployment)', () => {
     expect(await bcrypt.compare('Admin#2026', admin.passwordHash)).toBe(false);
     expect(await prisma.stockMovement.count()).toBe(400);
     expect(await prisma.stockMovement.count({ where: { userId: null } })).toBe(0);
+  });
+});
+
+describe.runIf(databaseProvider() === 'sqlite')('SQLite demo: a new copy of aged data', () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'stockflow-aged-'));
+  const cleanup: string[] = [];
+
+  afterAll(() => {
+    for (const file of cleanup) rmSync(file, { force: true });
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  /** A bundled database whose data was seeded a month ago, like a build left alone. */
+  async function agedSource(name: string): Promise<string> {
+    const source = path.join(dir, name);
+    copyFileSync(bundledSqlitePath(), source);
+    const aged = new PrismaClient({ datasourceUrl: sqliteUrl(source) });
+    await seedDatabase(aged, { mode: 'reset-demo', now: new Date(Date.now() - 31 * DAY) });
+    await aged.$disconnect();
+    cleanup.push(runtimeSqliteCopyPath(source));
+    return source;
+  }
+
+  const recent = () => ({ createdAt: { gte: new Date(Date.now() - 30 * DAY) } });
+  const today = () => {
+    const zone = appTimeZone();
+    return { createdAt: { gte: startOfDay(dayKey(new Date(), zone), zone) } };
+  };
+
+  it('is re-seeded for today before the first query; a restart keeps the copy as is', async () => {
+    const source = await agedSource('aged-a.db');
+    const app = createPrismaClient({ sqliteSource: source });
+    // Without the refresh the last 30 days would be empty: the data ends 31 days ago.
+    expect(await app.stockMovement.count({ where: recent() })).toBeGreaterThan(100);
+    expect(await app.stockMovement.count({ where: today() })).toBeGreaterThanOrEqual(3);
+    await app.supplier.create({ data: { name: 'Added after the refresh' } });
+    await app.$disconnect();
+
+    const restarted = createPrismaClient({ sqliteSource: source });
+    expect(await restarted.supplier.count({ where: { name: 'Added after the refresh' } })).toBe(1);
+    await restarted.$disconnect();
+  });
+
+  it('also when the first thing the app does is a transaction', async () => {
+    const source = await agedSource('aged-b.db');
+    const app = createPrismaClient({ sqliteSource: source });
+    const count = await app.$transaction((tx) => tx.stockMovement.count({ where: recent() }));
+    expect(count).toBeGreaterThan(100);
+    await app.$disconnect();
   });
 });

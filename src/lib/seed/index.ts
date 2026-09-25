@@ -170,6 +170,8 @@ export async function seedDatabase(
           action: mode === 'reset-demo' ? 'system.demo-reset' : 'system.seed',
           entity: 'System',
           entityId: null,
+          // The moment the data set's relative dates were generated for (see sqlite-demo.ts).
+          createdAt: now,
         },
       });
 

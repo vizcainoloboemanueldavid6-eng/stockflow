@@ -4,7 +4,16 @@
  *   npm run db:reset-demo  restore the whole database to the seed state
  * Flags: --reset-demo, --if-empty (skip when any user exists; used by the Vercel build)
  */
-import { createPrismaClient, databaseProvider } from '../src/lib/prisma-client';
+import { existsSync } from 'node:fs';
+import { PrismaClient } from '@prisma/client';
+import {
+  bundledSqlitePath,
+  createPrismaClient,
+  databaseProvider,
+  runtimeSqliteCopyPath,
+  sqliteUrl,
+  transactionOptions,
+} from '../src/lib/prisma-client';
 import { demoEnabled } from '../src/lib/config';
 import { accountsToSeed, isDatabaseEmpty, seedDatabase } from '../src/lib/seed';
 
@@ -20,8 +29,26 @@ async function main() {
       return;
     }
 
+    // SQLite: a running app works on a temp copy of the file (named after the file's
+    // current size and mtime, which the seed is about to change). Found now, it is reset
+    // below too, so `db:seed` / `db:reset-demo` take effect without a restart.
+    const liveCopy =
+      databaseProvider() === 'sqlite' && !args.has('--if-empty') && existsSync(bundledSqlitePath())
+        ? runtimeSqliteCopyPath()
+        : null;
+
     const started = Date.now();
-    const summary = await seedDatabase(prisma, { mode });
+    const now = new Date();
+    const summary = await seedDatabase(prisma, { mode, now });
+    if (liveCopy && existsSync(liveCopy)) {
+      const live = new PrismaClient({ datasourceUrl: sqliteUrl(liveCopy), transactionOptions });
+      try {
+        await seedDatabase(live, { mode, now });
+        console.log(`Also applied to the copy the running app uses: ${liveCopy}`);
+      } finally {
+        await live.$disconnect();
+      }
+    }
     const seconds = ((Date.now() - started) / 1000).toFixed(1);
 
     console.log(
