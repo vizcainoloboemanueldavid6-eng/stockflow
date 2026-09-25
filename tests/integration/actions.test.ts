@@ -26,6 +26,7 @@ const products = await import('@/lib/actions/products');
 const catalog = await import('@/lib/actions/catalog');
 const users = await import('@/lib/actions/users');
 const account = await import('@/lib/actions/account');
+const movements = await import('@/lib/actions/movements');
 const { listProducts, findProductsForExport } = await import('@/lib/queries/products');
 const { productListQuerySchema } = await import('@/lib/validations/product');
 
@@ -207,5 +208,110 @@ describe('product search takes % and _ literally', () => {
   it('is still a case-insensitive substring search', async () => {
     expect((await search('SEARCH PROBE')).sort()).toEqual(['SRCH-PCT', 'SRCH-UND']);
     expect(await search('srch-und')).toEqual(['SRCH-UND']);
+  });
+});
+
+describe('a burst of simultaneous stock movements', () => {
+  let burstProductId: string;
+
+  beforeAll(async () => {
+    const category = await prisma.category.findFirstOrThrow({ where: { name: 'Audio' } });
+    const product = await prisma.product.create({
+      data: {
+        sku: 'BURST-1',
+        name: 'Burst target',
+        categoryId: category.id,
+        unitCost: 1,
+        salePrice: 2,
+        reorderLevel: 1,
+      },
+    });
+    burstProductId = product.id;
+    signInAs(admin);
+    await movements.registerMovement({
+      productId: burstProductId,
+      type: 'IN',
+      quantity: 10,
+      reason: '',
+    });
+  });
+
+  afterAll(async () => {
+    const rows = await prisma.stockMovement.findMany({
+      where: { productId: burstProductId },
+      select: { id: true },
+    });
+    await prisma.auditLog.deleteMany({ where: { entityId: { in: rows.map((r) => r.id) } } });
+    await prisma.stockMovement.deleteMany({ where: { productId: burstProductId } });
+    await prisma.product.delete({ where: { id: burstProductId } });
+  });
+
+  it('answers every request with a stock result, never a generic error', async () => {
+    signInAs(admin);
+    // More requests than the connection pool has connections (CPUs x 2 + 1), all at once.
+    const results = await Promise.all(
+      Array.from({ length: 40 }, () =>
+        movements.registerMovement({
+          productId: burstProductId,
+          type: 'OUT',
+          quantity: 3,
+          reason: '',
+        }),
+      ),
+    );
+    const codes = results.map((r) => (r.ok ? 'OK' : r.code));
+    expect(codes.filter((c) => c === 'OK')).toHaveLength(3);
+    expect(codes.filter((c) => c !== 'OK' && c !== 'INSUFFICIENT_STOCK')).toEqual([]);
+    const product = await prisma.product.findUniqueOrThrow({ where: { id: burstProductId } });
+    expect(product.quantity).toBe(1);
+  });
+});
+
+describe('registerMovement reports when a product crosses its reorder level', () => {
+  let id: string;
+
+  beforeAll(async () => {
+    const category = await prisma.category.findFirstOrThrow({ where: { name: 'Audio' } });
+    id = (
+      await prisma.product.create({
+        data: {
+          sku: 'CROSS-1',
+          name: 'Threshold target',
+          categoryId: category.id,
+          unitCost: 1,
+          salePrice: 2,
+          reorderLevel: 5,
+        },
+      })
+    ).id;
+  });
+
+  afterAll(async () => {
+    const rows = await prisma.stockMovement.findMany({ where: { productId: id } });
+    await prisma.auditLog.deleteMany({ where: { entityId: { in: rows.map((r) => r.id) } } });
+    await prisma.stockMovement.deleteMany({ where: { productId: id } });
+    await prisma.product.delete({ where: { id } });
+  });
+
+  it('flags the crossing, not every movement on a product that is already low', async () => {
+    signInAs(admin);
+    const move = async (type: 'IN' | 'OUT', quantity: number) => {
+      const result = await movements.registerMovement({
+        productId: id,
+        type,
+        quantity,
+        reason: '',
+      });
+      if (!result.ok) throw new Error(result.error);
+      const { quantity: onHand, lowStock, becameLow } = result.data;
+      return { onHand, lowStock, becameLow };
+    };
+    expect(await move('IN', 10)).toEqual({ onHand: 10, lowStock: false, becameLow: false });
+    expect(await move('OUT', 5)).toEqual({ onHand: 5, lowStock: true, becameLow: true });
+    // Selling more of a product that is already low: still low, no new alert.
+    expect(await move('OUT', 1)).toEqual({ onHand: 4, lowStock: true, becameLow: false });
+    // A restock that is not enough: still low, and it did not just become low.
+    expect(await move('IN', 1)).toEqual({ onHand: 5, lowStock: true, becameLow: false });
+    expect(await move('IN', 1)).toEqual({ onHand: 6, lowStock: false, becameLow: false });
   });
 });

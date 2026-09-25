@@ -147,9 +147,14 @@ function MovementForm({
       toast.success(`${MOVEMENT_TYPE_LABELS[values.type]} recorded`, {
         description: `${data.productName}: ${change} units, ${formatNumber(data.quantity)} now in stock.`,
       });
-      if (data.lowStock) {
+      if (data.becameLow) {
         toast.warning(`${data.productName} is at or below its reorder level`, {
           description: 'It now appears in the low stock alerts.',
+        });
+      } else if (data.lowStock && data.delta > 0) {
+        // A restock that was not enough: it was already in the alerts and stays there.
+        toast.warning(`${data.productName} is still at or below its reorder level`, {
+          description: `${formatNumber(data.quantity)} in stock, reorder at ${formatNumber(data.reorderLevel)}. It stays in the low stock alerts.`,
         });
       }
       onDone();

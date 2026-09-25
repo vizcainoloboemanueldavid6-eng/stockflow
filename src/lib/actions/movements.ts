@@ -30,13 +30,18 @@ export const registerMovement = createAction(
     revalidatePath('/products');
     revalidatePath(`/products/${input.productId}`);
 
+    const { quantity, reorderLevel } = result.product;
+    const previousQuantity = quantity - result.delta;
     return {
       movementId: result.movement.id,
       productId: result.product.id,
       productName: result.product.name,
-      quantity: result.product.quantity,
+      quantity,
+      reorderLevel,
       delta: result.delta,
-      lowStock: result.product.quantity <= result.product.reorderLevel,
+      lowStock: quantity <= reorderLevel,
+      /** This movement took it from above the reorder level to at or below it. */
+      becameLow: previousQuantity > reorderLevel && quantity <= reorderLevel,
     };
   },
 );

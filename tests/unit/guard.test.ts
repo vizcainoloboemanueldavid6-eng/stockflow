@@ -13,7 +13,9 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/lib/auth', () => ({ auth: mocks.auth }));
 vi.mock('@/lib/db', () => ({ prisma: { user: { findUnique: mocks.findUnique } } }));
 
-const { createAction, requirePermission, toActionError } = await import('@/lib/actions/guard');
+const { BUSY_MESSAGE, createAction, requirePermission, toActionError } =
+  await import('@/lib/actions/guard');
+const { Prisma } = await import('@prisma/client');
 const { InsufficientStockError } = await import('@/lib/errors');
 
 function signInAs(role: 'ADMIN' | 'STAFF' | 'DEMO' | null) {
@@ -138,5 +140,21 @@ describe('createAction', () => {
       error: 'Something went wrong. Please try again.',
     });
     expect(spy).toHaveBeenCalled();
+  });
+
+  it('reports database contention as "busy, try again", not as a failure', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const known = (code: string, message: string) =>
+      new Prisma.PrismaClientKnownRequestError(message, { code, clientVersion: 'test' });
+    for (const error of [
+      known('P2028', 'Transaction API error: Unable to start a transaction in the given time.'),
+      known('P1008', 'Operations timed out after `5s`'),
+      known('P2034', 'Transaction failed due to a write conflict or a deadlock.'),
+      new Prisma.PrismaClientUnknownRequestError('SqliteFailure: database is locked', {
+        clientVersion: 'test',
+      }),
+    ]) {
+      expect(toActionError(error)).toEqual({ ok: false, code: 'BUSY', error: BUSY_MESSAGE });
+    }
   });
 });

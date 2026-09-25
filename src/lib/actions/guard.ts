@@ -77,7 +77,7 @@ export async function requirePagePermission(permission: Permission): Promise<Cur
   return user;
 }
 
-export type ActionErrorCode = AppErrorCode | 'INTERNAL';
+export type ActionErrorCode = AppErrorCode | 'BUSY' | 'INTERNAL';
 
 export type ActionResult<T = null> =
   | { ok: true; data: T }
@@ -152,8 +152,30 @@ export function toActionError(error: unknown): Extract<ActionResult<never>, { ok
       return { ok: false, code: 'NOT_FOUND', error: 'The requested record no longer exists.' };
     }
   }
+  if (isBusyError(error)) {
+    console.warn('[action] database busy', (error as Error).message.split('\n')[0]);
+    return { ok: false, code: 'BUSY', error: BUSY_MESSAGE };
+  }
   console.error('[action] unexpected error', error);
   return { ok: false, code: 'INTERNAL', error: 'Something went wrong. Please try again.' };
+}
+
+export const BUSY_MESSAGE =
+  'The system is busy with other changes right now. Nothing was saved; please try again.';
+
+/**
+ * Transient contention, not a bug: no connection or transaction slot in time (P2028),
+ * an operation timed out (P1008), a write conflict or deadlock (P2034), or SQLite's
+ * file lock ("database is locked"). The transaction was rolled back, so nothing changed.
+ */
+function isBusyError(error: unknown): boolean {
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    return ['P1008', 'P2028', 'P2034'].includes(error.code);
+  }
+  return (
+    error instanceof Prisma.PrismaClientUnknownRequestError &&
+    /database is locked|SQLITE_BUSY/i.test(error.message)
+  );
 }
 
 /** Postgres reports ["sku"]; SQLite may report "Product_sku_key" or ["sku"]. */
@@ -173,6 +195,13 @@ export function errorResponse(error: unknown): Response {
     return Response.json({ error: error.message, code: error.code }, { status: error.status });
   }
   const result = toActionError(error);
-  const status = result.code === 'CONFLICT' ? 409 : result.code === 'NOT_FOUND' ? 404 : 500;
+  const status =
+    result.code === 'CONFLICT'
+      ? 409
+      : result.code === 'NOT_FOUND'
+        ? 404
+        : result.code === 'BUSY'
+          ? 503
+          : 500;
   return Response.json({ error: result.error, code: result.code }, { status });
 }

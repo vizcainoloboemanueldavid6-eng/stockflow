@@ -230,6 +230,35 @@ test.describe('as admin', () => {
     await expect(page.getByText('Lifetime movements')).toBeVisible();
   });
 
+  test('dashboard: a restock that is not enough says the product stays in the alerts', async ({
+    page,
+  }) => {
+    await page.goto('/dashboard');
+    const rows = page.locator('#low-stock-alerts tbody tr');
+    await expect(rows.first()).toBeVisible();
+    // A row with room below its reorder level, so one unit keeps it low.
+    let target = -1;
+    for (let i = 0; i < (await rows.count()); i++) {
+      const cells = await rows.nth(i).locator('td').allTextContents();
+      const [onHand, reorderAt] = [cells[2], cells[3]].map((t) => Number(t.replace(/,/g, '')));
+      if (onHand + 1 <= reorderAt) {
+        target = i;
+        break;
+      }
+    }
+    expect(target).toBeGreaterThanOrEqual(0);
+    await rows
+      .nth(target)
+      .getByRole('button', { name: /Restock/ })
+      .click();
+    const dialog = page.getByRole('dialog', { name: 'Register movement' });
+    await dialog.getByLabel('Quantity (units)').fill('1');
+    await dialog.getByRole('button', { name: 'Record stock in' }).click();
+    await expect(toast(page, 'Stock in recorded')).toBeVisible();
+    await expect(toast(page, /is still at or below its reorder level/)).toBeVisible();
+    await expect(page.getByText('It now appears in the low stock alerts.')).toHaveCount(0);
+  });
+
   test('movements: overdraw is refused with a toast, a stock-in is recorded', async ({ page }) => {
     await page.goto('/movements');
     await page.getByTestId('register-movement').click();

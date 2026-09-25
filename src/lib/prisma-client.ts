@@ -27,9 +27,17 @@ export function bundledSqlitePath(): string {
   return path.join(process.cwd(), 'prisma', 'sqlite', 'stockflow.db');
 }
 
-function sqliteUrl(file: string): string {
+/**
+ * SQLite allows one writer at a time for the whole file. With a pool of several
+ * connections, simultaneous transactions contend for the file lock inside the engine
+ * and time out ("Socket timeout", P1008) - 32 of 40 simultaneous stock movements did.
+ * One connection per process makes Prisma queue them instead (up to the transaction
+ * maxWait), and each one takes milliseconds. `socket_timeout` (seconds) is how long a
+ * query waits for a lock held by another process, e.g. a seed script.
+ */
+export function sqliteUrl(file: string): string {
   // Forward slashes keep Windows paths valid inside a file: URL.
-  return `file:${file.replace(/\\/g, '/')}`;
+  return `file:${file.replace(/\\/g, '/')}?connection_limit=1&socket_timeout=15`;
 }
 
 /**
@@ -61,6 +69,16 @@ export function ensureWritableSqliteCopy(source = bundledSqlitePath()): string {
   return target;
 }
 
+/**
+ * Interactive transactions (every mutation) may wait up to 10 s for a connection and
+ * run for up to 15 s. Prisma's defaults (2 s / 5 s) turned a burst of simultaneous stock
+ * movements - more requests than the pool has connections, or a pool still opening its
+ * connections - into "Unable to start a transaction in the given time" (P2028). A
+ * movement takes milliseconds, so a longer wait only queues requests instead of failing
+ * them; what still fails is reported as "busy" (toActionError in actions/guard.ts).
+ */
+export const transactionOptions = { maxWait: 10_000, timeout: 15_000 };
+
 export function createPrismaClient({
   sqliteTarget = 'runtime-copy',
 }: {
@@ -72,7 +90,7 @@ export function createPrismaClient({
 
   if (databaseProvider() === 'sqlite') {
     const file = sqliteTarget === 'bundled' ? bundledSqlitePath() : ensureWritableSqliteCopy();
-    return new PrismaClient({ datasourceUrl: sqliteUrl(file), log });
+    return new PrismaClient({ datasourceUrl: sqliteUrl(file), log, transactionOptions });
   }
-  return new PrismaClient({ log });
+  return new PrismaClient({ log, transactionOptions });
 }
